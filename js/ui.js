@@ -8,7 +8,8 @@ import { loadHeroes, saveHero, deleteHero, newHero } from './save.js';
 import { skillCost } from './skills.js';
 import { fmt, pick, clamp } from './util.js';
 import { INV_SIZE } from './game.js';
-import { setMuted } from './sfx.js';
+import { setMuted, sfx } from './sfx.js';
+import { buyPrice, sellPrice, gamblePrice, potionPrice, refreshPrice, ensureShop, rollStock, gambleItem, GAMBLE_SLOTS } from './shop.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -70,6 +71,7 @@ export class UI {
     for (const b of document.querySelectorAll('#menu-tabs button')) b.onclick = () => this.openMenu(b.dataset.tab);
     $('#minimap').onclick = () => $('#minimap').classList.toggle('big');
     $('#descend').onclick = () => this.game && this.game.descend();
+    $('#trade').onclick = () => this.openMenu('shop');
     $('#sheet-bg').onclick = () => this.closeSheet();
     addEventListener('keydown', (e) => {
       if (!this.game || !this.game.running) return;
@@ -77,7 +79,7 @@ export class UI {
       if (e.code === 'KeyC') this.toggleMenu('hero');
       if (e.code === 'KeyT') this.toggleMenu('skills');
       if (e.code === 'Escape') { if (!$('#sheet').hidden) this.closeSheet(); else this.toggleMenu(this.menuTab); }
-      if ((e.code === 'KeyE' || e.code === 'Enter') && this.game.nearStairs && $('#menu').hidden) this.game.descend();
+      if ((e.code === 'KeyE' || e.code === 'Enter') && $('#menu').hidden) { if (this.game.nearMerchant) this.openMenu('shop'); else if (this.game.nearStairs) this.game.descend(); }
     });
   }
 
@@ -188,6 +190,7 @@ export class UI {
     set('ess', fmt(hero.essence), (v) => { $('#essence').textContent = v; });
     set('pot', hero.potions, (v) => { $('#pot-count').textContent = v; $('#btn-potion').classList.toggle('empty', v <= 0); });
     set('lowhp', p.hp < s.maxHp * 0.3, (v) => $('#vignette').classList.toggle('low', v));
+    set('merchant', !!g.nearMerchant, (v) => { $('#trade').hidden = !v; document.querySelector('#menu-tabs [data-tab=shop]').hidden = !v; });
     set('stairs', !!g.nearStairs, (v) => { $('#descend').hidden = !v; $('#descend').textContent = `⬇ Descend to Floor ${hero.floor + 1}`; });
     // skills
     for (let i = 0; i < 5; i++) {
@@ -248,6 +251,7 @@ export class UI {
     }
     for (const dr of g.drops) if (dr.item && rarityIndex(dr.item.rarity) >= 2) dot(dr.pos.x, dr.pos.z, rarity(dr.item).color, 2);
     for (const pr of g.props) if (!pr.used && pr.kind !== 'pot') { const tx = Math.floor(pr.x / 2), ty = Math.floor(pr.z / 2); if (d.explored[ty * d.W + tx]) dot(pr.x, pr.z, pr.kind === 'chest' ? '#d0a040' : '#c060ff', 2.2); }
+    if (g.merchant) dot(g.merchant.x, g.merchant.z, '#ffd040', 3.5);
     const sp = g.world.stairsPos, stx = Math.floor(sp.x / 2), sty = Math.floor(sp.z / 2);
     if (g.world.stairs.visible && d.explored[sty * d.W + stx]) dot(sp.x, sp.z, '#60a0ff', 3.5);
     dot(g.player.pos.x, g.player.pos.z, '#ffffff', 2.8);
@@ -304,6 +308,7 @@ export class UI {
   toggleMenu(tab) { if ($('#menu').hidden) this.openMenu(tab); else this.closeMenu(); }
   openMenu(tab) {
     const g = this.game;
+    if (tab === 'shop' && !g.nearMerchant) tab = 'gear';
     this.menuTab = tab;
     g.paused = true;
     $('#menu').hidden = false;
@@ -318,7 +323,7 @@ export class UI {
   renderMenu() {
     const body = $('#menu-body');
     body.innerHTML = '';
-    ({ hero: () => this.renderHero(body), gear: () => this.renderGear(body), skills: () => this.renderSkills(body), forge: () => this.renderForge(body), settings: () => this.renderSettings(body) })[this.menuTab]();
+    ({ hero: () => this.renderHero(body), gear: () => this.renderGear(body), skills: () => this.renderSkills(body), forge: () => this.renderForge(body), shop: () => this.renderShop(body), settings: () => this.renderSettings(body) })[this.menuTab]();
     this.markAlerts();
   }
 
@@ -484,12 +489,27 @@ export class UI {
     return out.length ? `<div class="compare"><small>${lbl}</small> ${out.join(' ')}</div>` : '<div class="compare"><small>No major stat change</small></div>';
   }
 
-  openItem(it, { equippedSlot }) {
+  openItem(it, { equippedSlot, shop }) {
     const g = this.game, hero = g.hero;
     const sheet = $('#sheet-body');
     sheet.innerHTML = '';
     const card = h('div', { class: 'item-card', style: `--rc:${rarity(it).color}`, html: this.itemHtml(it) });
     sheet.append(card);
+    if (shop) {
+      const slots = it.slot === 'ring' ? ['ring1', 'ring2'] : [it.slot];
+      for (const s of slots) sheet.append(h('div', { html: this.compareHtml(it, s) }));
+      const price = buyPrice(it);
+      sheet.append(h('div', { class: 'row wrap' },
+        h('button', { class: 'btn primary' + (hero.gold >= price ? '' : ' disabled'), onclick: () => {
+          if (hero.gold < price) return this.toast(`You need ${fmt(price - hero.gold)} more gold`, 'warn');
+          if (hero.inventory.length >= INV_SIZE) return this.toast('Bag is full', 'warn');
+          hero.gold -= price; hero.inventory.push(it); hero.shop.items.splice(hero.shop.items.indexOf(it), 1);
+          sfx('gold'); this.toast(`Bought ${it.name}`, it.rarity); this.closeSheet(); this.renderMenu(); saveHero(hero);
+        } }, `Buy for 💰${fmt(price)}`),
+        h('button', { class: 'btn', onclick: () => this.closeSheet() }, 'Close')));
+      $('#sheet').hidden = false; $('#sheet-bg').hidden = false;
+      return;
+    }
     if (equippedSlot) {
       sheet.append(h('div', { class: 'row wrap' },
         h('button', { class: 'btn', onclick: () => { if (hero.inventory.length >= INV_SIZE) return this.toast('Bag is full', 'warn'); delete hero.equipped[equippedSlot]; hero.inventory.push(it); g.recompute(); this.closeSheet(); this.renderMenu(); } }, 'Unequip'),
@@ -526,6 +546,12 @@ export class UI {
           hero.inventory.splice(hero.inventory.indexOf(it), 1); hero.essence += v.essence; hero.gold += v.gold;
           this.toast(`Salvaged: +${v.essence} essence, +${fmt(v.gold)} gold`); this.closeSheet(); this.renderMenu();
         } }, `Salvage (+${v.essence}✦)`),
+        g.nearMerchant ? h('button', { class: 'btn', onclick: () => {
+          if (it.locked) return this.toast('Item is locked', 'warn');
+          const gold = sellPrice(it);
+          hero.inventory.splice(hero.inventory.indexOf(it), 1); hero.gold += gold;
+          sfx('gold'); this.toast(`Sold for ${fmt(gold)} gold`); this.closeSheet(); this.renderMenu();
+        } }, `Sell (+💰${fmt(sellPrice(it))})`) : null,
         h('button', { class: 'btn', onclick: () => this.closeSheet() }, 'Close')));
     }
     $('#sheet').hidden = false; $('#sheet-bg').hidden = false;
@@ -552,6 +578,57 @@ export class UI {
         unlocked && hero.skillPoints > 0 ? h('button', { class: 'btn small primary', onclick: () => { hero.skillRanks[i]++; hero.skillPoints--; this.renderMenu(); } }, '+1') : null));
     });
     body.append(h('p', { class: 'muted small' }, i18nControls()));
+  }
+
+  renderShop(body) {
+    const g = this.game, hero = g.hero, floor = hero.floor;
+    if (!g.nearMerchant) { body.append(h('p', { class: 'muted' }, 'Walk up to the merchant to trade.')); return; }
+    const shop = ensureShop(hero, floor);
+    const pay = (cost) => { if (hero.gold < cost) { this.toast(`You need ${fmt(cost - hero.gold)} more gold`, 'warn'); return false; } hero.gold -= cost; sfx('gold'); return true; };
+    body.append(h('div', { class: 'section shop-head' },
+      h('h3', {}, '🛒 Travelling Merchant'),
+      h('p', { class: 'muted small' }, 'Fresh wares on every 5th floor. Half the stock is picked for your class. Tap an item to inspect it. Selling from your bag (tap an item in Gear) pays 3× salvage gold but gives no essence.'),
+      h('div', { class: 'inv-bar' }, h('span', { class: 'gold' }, `💰 ${fmt(hero.gold)}`), h('span', {}, `Bag ${hero.inventory.length}/${INV_SIZE}`))));
+    const wares = h('div', { class: 'section' }, h('h4', {}, 'Wares'));
+    const grid = h('div', { class: 'shop-grid' });
+    shop.items.forEach((it) => {
+      const price = buyPrice(it);
+      grid.append(h('div', { class: 'shop-item' + (hero.gold >= price ? '' : ' poor') },
+        this.slotEl(it, SLOT_ICONS[it.slot], '', () => this.openItem(it, { shop: true }), this.upgradeArrow(it)),
+        h('small', { class: 'price' }, `💰${fmt(price)}`)));
+    });
+    if (!shop.items.length) grid.append(h('p', { class: 'muted small' }, 'Sold out.'));
+    wares.append(grid);
+    const rc = refreshPrice(floor, shop.refreshes);
+    wares.append(h('button', { class: 'btn small wide', onclick: () => { if (!pay(rc)) return; shop.items = rollStock(hero, floor); shop.refreshes++; this.renderMenu(); } }, `↻ New stock — 💰${fmt(rc)}`));
+    body.append(wares);
+
+    const gp = gamblePrice(floor);
+    const gam = h('div', { class: 'section' }, h('h4', {}, `🎲 Gamble — 💰${fmt(gp)} each`), h('p', { class: 'muted small' }, 'Buy a sealed item for a slot you choose. At least Magic, with much better odds of Rare, Epic and Legendary.'));
+    const row = h('div', { class: 'gamble-row' });
+    for (const slot of GAMBLE_SLOTS) row.append(h('button', { class: 'btn gamble', onclick: () => {
+      if (hero.inventory.length >= INV_SIZE) return this.toast('Bag is full', 'warn');
+      if (!pay(gp)) return;
+      const it = gambleItem(floor, slot);
+      hero.inventory.push(it);
+      const ri = rarityIndex(it.rarity);
+      if (ri >= 4) sfx('epic');
+      this.toast(`🎲 ${RARITIES[ri].name}: ${it.name}`, ri >= 3 ? it.rarity : '');
+      this.renderMenu(); saveHero(hero);
+    } }, h('span', {}, SLOT_ICONS[slot]), h('small', {}, SLOT_NAMES[slot])));
+    gam.append(row);
+    body.append(gam);
+
+    const pp = potionPrice(floor), maxP = g.maxPotions();
+    body.append(h('div', { class: 'section' }, h('h4', {}, `🧪 Potions (${hero.potions}/${maxP})`),
+      h('button', { class: 'btn wide' + (hero.potions >= maxP ? ' disabled' : ''), onclick: () => {
+        if (hero.potions >= maxP) return this.toast('Potion belt is full', 'warn');
+        if (!pay(pp)) return; hero.potions++; this.renderMenu();
+      } }, `Buy a potion — 💰${fmt(pp)}`),
+      h('button', { class: 'btn wide' + (hero.potions >= maxP ? ' disabled' : ''), onclick: () => {
+        const n = maxP - hero.potions; if (n <= 0) return this.toast('Potion belt is full', 'warn');
+        if (!pay(pp * n)) return; hero.potions = maxP; this.renderMenu();
+      } }, `Fill the belt — 💰${fmt(pp * Math.max(0, maxP - hero.potions))}`)));
   }
 
   renderForge(body) {

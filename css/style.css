@@ -204,3 +204,12 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 .warn-line { color: #ff8a6a; font-size: 13px; margin: 0 0 8px; }
 #btn-fs { position: fixed; top: calc(134px + var(--sat)); right: calc(8px + var(--sar)); width: 40px; height: 40px; border-radius: 10px; background: #17131fcc; border: 1px solid var(--line); font-size: 18px; }
 #btn-fs-title { display: block; margin: 0 auto 16px; }
+#trade { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(150px + var(--sab)); padding: 12px 22px; font-weight: 800; border-radius: 14px; background: linear-gradient(#d8a030, #9a6410); border: 1px solid #ffd070; color: #fff; box-shadow: 0 0 20px #e0a03088; font-size: 15px; }
+@media (max-height: 460px) { #trade { bottom: calc(110px + var(--sab)); } }
+.shop-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+.shop-item { display: flex; flex-direction: column; align-items: center; gap: 2px; } .shop-item .slot { width: 100%; }
+.shop-item .price { color: var(--gold); font-size: 11px; font-weight: 700; } .shop-item.poor .price { color: #a06060; }
+.gamble-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
+.btn.gamble { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; gap: 2px; } .btn.gamble span { font-size: 22px; } .btn.gamble small { font-size: 10px; color: var(--muted); }
+#trade, #descend { white-space: nowrap; }
+@media (max-width: 819px) { #menu-tabs button { min-width: 50px; font-size: 17px; } #menu-tabs button span { font-size: 10px; } #menu-close { width: 46px; } }

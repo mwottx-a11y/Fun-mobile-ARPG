@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { generateDungeon, moveWithCollision, hasLOS, TS, FLOOR } from './dungeon.js';
 import { buildWorld, setupLights, applyTheme } from './world.js';
+import { buildMerchant } from './models.js';
+import { isShopFloor, ensureShop } from './shop.js';
 import { buildHero, setHeroGear, buildMinion, buildDrop, buildGold, buildChest, buildPot, buildShrine, GEO, basic, lambert } from './models.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
@@ -151,6 +153,7 @@ export class Game {
     for (const m of this.minions) this.scene.remove(m.mesh);
     for (const d of this.drops) this.scene.remove(d.mesh);
     for (const pr of this.props) this.scene.remove(pr.mesh);
+    if (this.merchant) { this.scene.remove(this.merchant.mesh); this.merchant = null; this.nearMerchant = false; }
     for (const o of this.orbits) for (const m of o.meshes) this.scene.remove(m);
     this.enemies = []; this.activeEnemies = []; this.projectiles = []; this.hazards = []; this.minions = [];
     this.drops = []; this.props = []; this.timers = [];
@@ -177,6 +180,22 @@ export class Game {
     hero.potions = this.maxPotions();
     this.flow = new Int32Array(d.W * d.H); p.lastTile = -1;
     this.populate();
+    this.merchant = null; this.nearMerchant = false;
+    if (isShopFloor(floor)) {
+      // the merchant sets up in the safe starting room, so you can gear up before the boss
+      const r = d.start;
+      let mx = sx, mz = sz - 2 * TS;
+      for (const [ox, oz] of [[0, -2], [2, 0], [-2, 0], [0, 2], [0, -1], [1, 0]]) {
+        const tx = r.cx + ox, tz = r.cy + oz;
+        if (d.isFloor(tx, tz) && d.isFloor(tx, tz - 1) && d.isFloor(tx - 1, tz) && d.isFloor(tx + 1, tz)) { [mx, mz] = d.tileCenter(tx, tz); break; }
+      }
+      const mesh = buildMerchant();
+      mesh.position.set(mx, 0, mz + 1.2);
+      this.scene.add(mesh);
+      this.merchant = { x: mx, z: mz, mesh };
+      ensureShop(hero, floor);
+      setTimeout(() => this.ui.toast('🛒 A travelling merchant has set up shop nearby', 'epic'), 1500);
+    }
     this.recompute();
     p.hp = this.stats.maxHp; p.mana = this.stats.maxMana;
     this.camera.position.set(sx, 16, sz + 10);
@@ -818,6 +837,8 @@ export class Game {
     // stairs
     const st = this.world.stairsPos;
     this.nearStairs = this.world.stairs.visible && dist2(st.x, st.z, p.pos.x, p.pos.z) < 2.6 * 2.6;
+    this.nearMerchant = !!this.merchant && dist2(this.merchant.x, this.merchant.z, p.pos.x, p.pos.z) < 3.2 * 3.2;
+    if (this.merchant) this.merchant.mesh.userData.lantern.scale.setScalar(0.12 * (0.9 + Math.sin(now * 7) * 0.1));
   }
 
   // Turn a drag-aim vector from a skill button into a target for castSkill.

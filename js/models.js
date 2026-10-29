@@ -276,3 +276,24 @@ export function buildTorch() {
   g.userData.flame = f;
   return g;
 }
+
+// Merchant stall: striped awning, crates, and a hooded trader holding a lantern.
+export function buildMerchant() {
+  const g = new THREE.Group();
+  const wood = lambert(0x6a4a28), cloth = [0x8a2a2a, 0xd8c090];
+  g.add(part(G.box(), wood, 2.4, 0.12, 1.0, 0, 0.85, -0.9));
+  for (const [x, z] of [[-1.1, -1.35], [1.1, -1.35], [-1.1, -0.45], [1.1, -0.45]]) g.add(part(G.box(), wood, 0.1, x < 0 && z < -1 || x > 0 && z < -1 ? 2.3 : 0.85, 0.1, x, z < -1 ? 1.15 : 0.42, z));
+  for (let i = 0; i < 6; i++) { const a = part(G.box(), lambert(cloth[i % 2]), 0.42, 0.06, 1.4, -1.05 + i * 0.42, 2.25, -0.75); a.rotation.x = -0.35; g.add(a); }
+  g.add(part(G.box(), lambert(0x7a5a34), 0.5, 0.5, 0.5, -1.6, 0.25, -0.6), part(G.box(), lambert(0x7a5a34), 0.4, 0.4, 0.4, -1.55, 0.7, -0.6));
+  g.add(part(G.cyl(), lambert(0x5a3a20), 0.25, 0.6, 0.25, 1.6, 0.3, -0.8));
+  // wares on the counter
+  g.add(part(G.oct(), basic(0xc45cff), 0.12, 0.18, 0.12, -0.6, 1.05, -0.9), part(G.oct(), basic(0xffd84a), 0.12, 0.18, 0.12, 0, 1.05, -0.9), part(G.cyl(), basic(0xff4060), 0.08, 0.2, 0.08, 0.6, 1.02, -0.9));
+  // trader
+  const robe = lambert(0x3a2a5a);
+  g.add(part(G.cone(), robe, 0.45, 1.3, 0.45, 0, 0.65, -1.6), part(G.sphere(), lambert(0xd0a080), 0.22, 0.22, 0.22, 0, 1.45, -1.6), part(G.cone(), robe, 0.3, 0.55, 0.3, 0, 1.68, -1.62));
+  const lantern = part(G.sphere(), basic(0xffc860), 0.12, 0.14, 0.12, 0.45, 1.1, -1.35);
+  g.add(lantern, part(G.sphere(), basic(0xffa040, 0.25, true), 0.45, 0.45, 0.45, 0.45, 1.1, -1.35));
+  g.add(part(G.disc(), basic(0xffc860, 0.18, true), 2.6, 1, 2.0, 0, 0.04, -0.6));
+  g.userData.lantern = lantern;
+  return g;
+}
