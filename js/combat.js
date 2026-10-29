@@ -35,7 +35,7 @@ export function playerHit(G, e, opts) {
   e.hp -= dmg;
   e.hitFlash = 0.12;
   sfx(crit ? 'crit' : 'hit');
-  e.aggro = true;
+  if (!e.aggro) G.onAggro(e, true);
   if (!opts.noText) G.fx.text(e.pos.x, 1.6 * e.scale, e.pos.z, fmt(dmg) + (crit ? '!' : ''), (crit ? 'crit ' : '') + (TEXT_CLASS[elem] || ''));
 
   // leech

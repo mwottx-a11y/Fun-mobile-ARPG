@@ -4,7 +4,8 @@ import { generateDungeon, moveWithCollision, hasLOS, TS, FLOOR } from './dungeon
 import { buildWorld, setupLights, applyTheme } from './world.js';
 import { buildMerchant } from './models.js';
 import { isShopFloor, ensureShop } from './shop.js';
-import { buildHero, setHeroGear, buildMinion, buildDrop, buildGold, buildChest, buildPot, buildShrine, GEO, basic, lambert } from './models.js';
+import { buildHero, buildMinion, tickBlink } from './characters.js';
+import { setHeroGear, buildDrop, buildGold, buildChest, buildPot, buildShrine, GEO, basic, lambert } from './models.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
 import { computeStats, xpToNext, ELEM_COLORS } from './stats.js';
@@ -16,7 +17,8 @@ import { RARITIES, rarityIndex } from './data/items.js';
 import { generateItem, salvageValue } from './loot.js';
 import { castSkill, skillCost, skillRange } from './skills.js';
 import { playerHit, hurtPlayer, healPlayer, killEnemy } from './combat.js';
-import { createEnemy, updateEnemy, rollEliteMods } from './ai.js';
+import { createEnemy, updateEnemy, rollEliteMods, animateEnemy } from './ai.js';
+import { BARKS, BOSS_LINES } from './data/barks.js';
 import { rand, randi, pick, chance, dist2, clamp, weighted, power, fmt } from './util.js';
 import { saveHero } from './save.js';
 import { sfx, setMuted } from './sfx.js';
@@ -155,6 +157,8 @@ export class Game {
     for (const pr of this.props) this.scene.remove(pr.mesh);
     if (this.merchant) { this.scene.remove(this.merchant.mesh); this.merchant = null; this.nearMerchant = false; }
     for (const o of this.orbits) for (const m of o.meshes) this.scene.remove(m);
+    for (const d of this.dying || []) this.scene.remove(d.mesh);
+    this.dying = [];
     this.enemies = []; this.activeEnemies = []; this.projectiles = []; this.hazards = []; this.minions = [];
     this.drops = []; this.props = []; this.timers = [];
     this.orbits = [];
@@ -434,6 +438,7 @@ export class Game {
       ranged: kind === 'imp', speed: kind === 'wolf' ? 7.5 : 5.5, dmgMult: sk.dmgMult * (1 + s.minionDmg / 100) * (1 + 0.15 * (rank - 1)),
       elem: kind === 'imp' ? 'fire' : 'phys', facing: 0, retarget: 0 });
     this.fx.burst(x, 0.5, z, 0x80ff80, 12, 4, 0.5);
+    this.fx.emote(x, 1.7, z, '❤', '');
   }
   hurtMinion(m, dmg) {
     m.hp -= dmg * 0.6;
@@ -472,7 +477,7 @@ export class Game {
     const mesh = buildGold();
     mesh.position.set(x + rand(-0.6, 0.6), 0, z + rand(-0.6, 0.6));
     this.scene.add(mesh);
-    this.drops.push({ gold: amt, mesh, pos: mesh.position, t: 0 });
+    this.drops.push({ gold: amt, mesh, pos: mesh.position, t: 0, pop: 0.35 });
   }
 
   spawnItem(x, z, opts) {
@@ -485,7 +490,7 @@ export class Game {
     if (!this.dungeon.walkable(px, pz)) { px = x; pz = z; }
     mesh.position.set(px, 0, pz);
     this.scene.add(mesh);
-    this.drops.push({ item, mesh, pos: mesh.position, t: rand(0, 6), delay: 0.5 });
+    this.drops.push({ item, mesh, pos: mesh.position, t: rand(0, 6), delay: 0.5, pop: 0.45 });
     if (rarityIndex(item.rarity) >= 4) {
       sfx('epic');
       this.ui.toast(`${rar.name} drop: ${item.name}!`, item.rarity);
@@ -493,12 +498,42 @@ export class Game {
     }
   }
 
+  // A monster notices you: "!" and sometimes a one-liner; bosses always deliver their line.
+  onAggro(e, loud) {
+    if (e.aggro) return;
+    e.aggro = true;
+    const y = (e.arch === 'brute' || e.boss ? 2.4 : 1.9) * e.scale;
+    if (e.boss) { const line = BOSS_LINES[this.theme.id]; this.fx.emote(e.pos.x, y + 0.6, e.pos.z, line, 'line'); this.ui.toast(`${e.name}: "${line}"`, 'boss'); return; }
+    if (!loud && Math.random() < 0.6) return;
+    this.fx.emote(e.pos.x, y, e.pos.z, '!', '');
+    if (loud && Math.random() < 0.3) this.schedule(0.35, () => { if (!e.dead) this.fx.emote(e.pos.x, y + 0.2, e.pos.z, pick(BARKS[this.theme.id] || BARKS.crypt), 'line'); });
+  }
+  // Death "poof": pop, spin and shrink before vanishing.
+  updateDying(dt) {
+    if (!this.dying) return;
+    for (let i = this.dying.length - 1; i >= 0; i--) {
+      const d = this.dying[i];
+      d.t += dt;
+      const k = d.t / 0.32;
+      if (k >= 1) { this.scene.remove(d.mesh); this.dying.splice(i, 1); continue; }
+      const sc = d.s * (k < 0.25 ? 1 + k * 1.2 : 1.3 * (1 - (k - 0.25) / 0.75));
+      d.mesh.scale.setScalar(Math.max(0.01, sc));
+      d.mesh.rotation.y += dt * 18;
+      d.mesh.position.y = Math.sin(k * Math.PI) * 0.5;
+    }
+  }
+
   onEnemyKilled(e) {
     const hero = this.hero, s = this.stats;
     if (e.suicide) { this.scene.remove(e.mesh); return; }
     hero.kills = (hero.kills || 0) + 1;
-    this.fx.burst(e.pos.x, 0.8 * e.scale, e.pos.z, this.theme.color, 14, 5, 0.6);
-    this.scene.remove(e.mesh);
+    // confetti + poof
+    const cy = 0.8 * e.scale;
+    this.fx.burst(e.pos.x, cy, e.pos.z, this.theme.color, 10, 5, 0.6);
+    for (const c of [0xffe040, 0xff60a0, 0x60d0ff, 0x80ff60]) this.fx.burst(e.pos.x, cy, e.pos.z, c, e.boss ? 20 : 4, 6, 0.8, 7);
+    this.fx.ring(e.pos.x, e.pos.z, 1.2 * e.scale, 0xffffff, 0.3);
+    e.bar.visible = false;
+    (this.dying || (this.dying = [])).push({ mesh: e.mesh, t: 0, s: e.mesh.scale.x });
     this.addXp(22 * power(e.level) * e.xp * s.xpMult);
     const ilvl = e.level + (e.elite ? 1 : 0) + (e.boss ? 2 : 0);
     // loot
@@ -542,6 +577,7 @@ export class Game {
       this.fx.ring(p.pos.x, p.pos.z, 4, 0xffe080, 0.8);
       this.fx.burst(p.pos.x, 1, p.pos.z, 0xffe080, 40, 7, 1, -1);
       this.ui.toast(`Level up! You are now level ${hero.level}`, 'levelup');
+      this.player.hop = 0.6; this.fx.emote(this.player.pos.x, 2.4, this.player.pos.z, '✨', 'big');
       sfx('levelup'); this.vibrate([40, 60, 40]);
       this.ui.markAlerts();
     }
@@ -627,7 +663,8 @@ export class Game {
       e.mesh.visible = d2 < ACTIVE_R2 * 1.2;
       if (d2 < ACTIVE_R2 || e.boss) this.activeEnemies.push(e);
     }
-    for (const e of this.activeEnemies) if (!e.dead) updateEnemy(this, e, dt);
+    for (const e of this.activeEnemies) if (!e.dead) { updateEnemy(this, e, dt); if (!e.dead) animateEnemy(this, e, dt); }
+    this.updateDying(dt);
     this.separate();
     this.updateMinions(dt);
     this.updateProjectiles(dt);
@@ -821,13 +858,24 @@ export class Game {
 
     // model anim
     p.mesh.rotation.y = p.facing;
-    const body = p.mesh.userData.body;
+    const u = p.mesh.userData, body = u.body;
     const now = performance.now() / 1000;
-    body.position.y = moving ? Math.abs(Math.sin(now * 11)) * 0.1 : Math.sin(now * 2) * 0.02;
-    const rh = p.mesh.userData.rightHand;
-    if (p.swing > 0) { rh.rotation.x = -1.6 + (1 - p.swing / 0.25) * 2.4; }
-    else rh.rotation.x = moving ? Math.sin(now * 11) * 0.4 : 0;
-    p.mesh.userData.leftHand.rotation.x = moving ? -Math.sin(now * 11) * 0.4 : 0;
+    const step = Math.sin(now * 12);
+    // bouncy walk, idle breathing, a happy hop on level up, a squish when hurt
+    if (p.hop > 0) p.hop -= dt;
+    const hop = p.hop > 0 ? Math.sin((1 - p.hop / 0.6) * Math.PI) * 0.9 : 0;
+    body.position.y = (moving ? Math.abs(step) * 0.09 : 0) + hop;
+    const squish = p.hurtFlash > 0 ? 0.85 : moving ? 1 + Math.abs(step) * 0.04 : 1 + Math.sin(now * 2.2) * 0.02;
+    body.scale.set(2 - squish, squish, 2 - squish);
+    body.rotation.z = moving ? step * 0.06 : 0;
+    u.legs[0].rotation.x = moving ? step * 0.75 : 0; u.legs[1].rotation.x = moving ? -step * 0.75 : 0;
+    u.leftArm.rotation.x = moving ? -step * 0.6 : Math.sin(now * 2.2) * 0.05;
+    if (p.swing > 0) u.rightArm.rotation.x = -2.7 + (1 - p.swing / 0.25) * 2.3;
+    else u.rightArm.rotation.x = moving ? step * 0.6 : -0.15;
+    if (hop) { u.leftArm.rotation.x = -2.6; u.rightArm.rotation.x = -2.6; }
+    if (u.cape) u.cape.rotation.x = moving ? 0.45 + Math.sin(now * 14) * 0.12 : 0.08 + Math.sin(now * 1.6) * 0.04;
+    u.floaty.position.y = u.floatyY + Math.sin(now * 2.4) * 0.06; u.floaty.rotation.y += dt * 1.2;
+    tickBlink(p.mesh, dt);
     p.mesh.visible = !(p.invuln > 0 && p.invuln < 1.5 && !p.dash && Math.floor(now * 20) % 2 === 0 && s.powers.has('phoenix') && p.phoenixCd > 85);
 
     // reveal map
@@ -934,10 +982,12 @@ export class Game {
       }
       if (mx || mz) {
         moveWithCollision(this.dungeon, m.pos, mx * m.speed * dt, mz * m.speed * dt, 0.3);
-        m.mesh.userData.body.position.y = Math.abs(Math.sin(performance.now() / 90)) * 0.1;
+        const b = Math.abs(Math.sin(performance.now() / 80));
+        m.mesh.userData.body.position.y = b * 0.14; m.mesh.userData.body.rotation.z = Math.sin(performance.now() / 80) * 0.1;
       }
       if (m.kind === 'imp') m.mesh.userData.body.position.y = 0.3 + Math.sin(performance.now() / 200) * 0.15;
       m.mesh.rotation.y = m.facing;
+      tickBlink(m.mesh, dt);
     }
   }
 
@@ -1057,6 +1107,7 @@ export class Game {
       const d = this.drops[i];
       d.t += dt;
       if (d.delay > 0) { d.delay -= dt; }
+      if (d.pop > 0) { d.pop -= dt; d.mesh.position.y = Math.max(0, Math.sin((1 - d.pop / 0.45) * Math.PI)) * 1.1; } else d.mesh.position.y = 0;
       const d2 = dist2(d.pos.x, d.pos.z, p.pos.x, p.pos.z);
       if (d.gold) {
         if (d2 < (s.pickup * 1.8) ** 2) {

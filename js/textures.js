@@ -181,10 +181,6 @@ export function themeTextures(theme) {
       speckle(fg, 500, ['rgb(10,5,20)', shade(F, 1.5)], 0.5, 1.8, 0.4);
       fGlowC = glowCanvas(); const gg = fGlowC.getContext('2d');
       gg.strokeStyle = 'rgb(150,60,255)'; gg.lineWidth = 2; gg.shadowColor = '#a040ff'; gg.shadowBlur = 6;
-      // a faint rune on one slab out of four
-      const cx = 64 + 128 * randi(0, 1), cy = 64 + 128 * randi(0, 1);
-      gg.beginPath(); gg.arc(cx, cy, 30, 0, 7); gg.stroke();
-      for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2, b = ((k + 2) / 5) * Math.PI * 2; gg.beginPath(); gg.moveTo(cx + Math.cos(a) * 30, cy + Math.sin(a) * 30); gg.lineTo(cx + Math.cos(b) * 30, cy + Math.sin(b) * 30); gg.stroke(); }
       gg.shadowBlur = 0; gg.fillStyle = 'rgb(26,8,48)'; gg.fillRect(0, 0, S, 3); gg.fillRect(0, S / 2 - 1, S, 3); gg.fillRect(0, 0, 3, S); gg.fillRect(S / 2 - 1, 0, 3, S);
       bricks(wg, 5, 2, Wl, 'rgb(12,6,22)');
       speckle(wg, 400, ['rgb(15,8,30)', shade(Wl, 1.4)], 0.5, 1.8);

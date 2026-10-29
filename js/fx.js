@@ -163,6 +163,13 @@ export class FX {
     this.texts.push(t);
   }
 
+  // Little speech bubble / emoji above a character ("!", one-liners, hearts).
+  emote(x, y, z, str, cls = '') {
+    this.text(x, y, z, str, 'emote ' + cls);
+    const t = this.texts[this.texts.length - 1];
+    t.x = x; t.life = t.max = cls.includes('line') ? 1.8 : 1.0; t.emote = true;
+  }
+
   update(dt) {
     // particles
     for (let i = 0; i < MAX_P; i++) {
@@ -202,7 +209,7 @@ export class FX {
       t.life -= dt;
       if (t.life <= 0) { t.el.style.display = 'none'; this.texts.splice(i, 1); this.textPool.push(t); continue; }
       const k = 1 - t.life / t.max;
-      this.tmpV.set(t.x, t.y + k * 1.6, t.z).project(this.camera);
+      this.tmpV.set(t.x, t.y + (t.emote ? Math.min(k * 4, 1) * 0.4 : k * 1.6), t.z).project(this.camera);
       const sx = (this.tmpV.x * 0.5 + 0.5) * w, sy = (-this.tmpV.y * 0.5 + 0.5) * h;
       t.el.style.transform = `translate(${sx | 0}px, ${sy | 0}px) translate(-50%, -50%) scale(${k < 0.15 ? 0.6 + k * 4 : 1})`;
       t.el.style.opacity = Math.min(1, t.life / t.max * 2.5);

@@ -111,7 +111,7 @@ export const vcBasic = new THREE.MeshBasicMaterial({ vertexColors: true });
 const mergedCache = new Map();
 export function mergeGroup(group) {
   group.updateMatrixWorld(true);
-  const buckets = { lit: [], unlit: [] };
+  const buckets = {};
   group.traverse((o) => {
     if (!o.isMesh) return;
     const unlit = o.material.isMeshBasicMaterial;
@@ -121,7 +121,8 @@ export function mergeGroup(group) {
     if (o.material.emissive && o.material.emissiveIntensity) col.lerp(o.material.emissive, 0.35).multiplyScalar(1.25);
     const n = g.attributes.position.count, ca = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { ca[i * 3] = col.r; ca[i * 3 + 1] = col.g; ca[i * 3 + 2] = col.b; }
-    buckets[unlit ? 'unlit' : 'lit'].push({ pos: g.attributes.position.array, nrm: g.attributes.normal.array, col: ca });
+    const key = o.userData.bucket || (unlit ? 'unlit' : 'lit');
+    (buckets[key] || (buckets[key] = [])).push({ pos: g.attributes.position.array, nrm: g.attributes.normal.array, col: ca });
   });
   const out = {};
   for (const k in buckets) {

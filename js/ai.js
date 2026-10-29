@@ -1,7 +1,8 @@
 // Monster creation and behaviour.
 import * as THREE from 'three';
 import { ARCHETYPES, ELITE_MODS, BOSS_ABILITIES } from './data/enemies.js';
-import { buildMonster, GEO, basic } from './models.js';
+import { GEO, basic } from './models.js';
+import { buildMonster, tickBlink } from './characters.js';
 import { hurtPlayer, tickStatuses, monsterDamage, killEnemy } from './combat.js';
 import { moveWithCollision, hasLOS, TS } from './dungeon.js';
 import { monsterHpPower, rand, randi, pick, shuffle, dist2, chance } from './util.js';
@@ -38,7 +39,7 @@ export function createEnemy(G, archId, x, z, { elite = 0, mods = [], boss = fals
   const bg = new THREE.Mesh(barGeo, barBg), fill = new THREE.Mesh(barGeo, barFill[boss ? 2 : elite]);
   bg.position.x = fill.position.x = -0.5; fill.position.z = 0.01;
   bar.add(bg, fill); bar.visible = false;
-  bar.position.y = (archId === 'brute' || boss ? 2.1 : 1.7);
+  bar.position.y = (archId === 'brute' || boss ? 2.4 : 1.9);
   bar.scale.setScalar(1 / scale * (boss ? 1.4 : 1));
   mesh.add(bar);
   G.scene.add(mesh);
@@ -75,7 +76,7 @@ export function updateEnemy(G, e, dt) {
   if (e.dead) return;
   const p = G.player;
   const body = e.mesh.userData.body;
-  if (e.hitFlash > 0) { e.hitFlash -= dt; body.scale.setScalar(1 + e.hitFlash * 1.2); } else body.scale.setScalar(1);
+  if (e.hitFlash > 0) e.hitFlash -= dt;
   if (e.hp < e.maxHp && !e.boss) { e.bar.visible = true; e.barFill.scale.x = Math.max(0.001, e.hp / e.maxHp); e.bar.quaternion.copy(e.mesh.quaternion).invert().multiply(G.camera.quaternion); }
   if (e.mods.has('regen') && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.015 * dt);
 
@@ -98,12 +99,10 @@ export function updateEnemy(G, e, dt) {
     if (e.losT <= 0) {
       e.losT = 0.3;
       if (d < 12 && hasLOS(G.dungeon, e.pos.x, e.pos.z, tgt.pos.x, tgt.pos.z)) {
-        e.aggro = true;
-        for (const o of G.activeEnemies) if (!o.aggro && dist2(o.pos.x, o.pos.z, e.pos.x, e.pos.z) < 64) o.aggro = true;
+        G.onAggro(e, true);
+        for (const o of G.activeEnemies) if (!o.aggro && dist2(o.pos.x, o.pos.z, e.pos.x, e.pos.z) < 64) G.onAggro(o, false);
       }
     }
-    // idle bob
-    body.position.y = Math.abs(Math.sin(performance.now() / 500 + e.modT)) * 0.03;
     return;
   }
   if (e.hp < e.maxHp || e.aggro) e.mesh.visible = true;
@@ -125,7 +124,6 @@ export function updateEnemy(G, e, dt) {
 
   if (e.state === 'windup') {
     e.t -= dt;
-    body.position.y = 0.05 + Math.sin(e.t * 40) * 0.03;
     if (e.t <= 0) { performAttack(G, e, tgt, d); e.state = e.state === 'charging' ? 'charging' : 'recover'; if (e.state === 'recover') e.t = 0.3; e.atkT = def.atkCd * rand(0.85, 1.15) * (fast ? 0.75 : 1); }
     return;
   }
@@ -161,7 +159,6 @@ export function updateEnemy(G, e, dt) {
     const sp = e.speed * slow * dt;
     moveWithCollision(G.dungeon, e.pos, mx * sp, mz * sp, e.radius * 0.8);
     face(Math.atan2(mx, mz));
-    body.position.y = Math.abs(Math.sin(performance.now() / 90 + e.modT)) * 0.12;
   } else if (d < 15) face(angTo(e.pos, tgt.pos));
 }
 
@@ -320,6 +317,35 @@ function bossTick(G, e, tgt, d, dt, slow) {
     const sp = e.speed * slow * dt;
     moveWithCollision(G.dungeon, e.pos, mx * sp, mz * sp, Math.min(e.radius * 0.5, 0.8));
     face(Math.atan2(mx, mz));
-    e.mesh.userData.body.position.y = Math.abs(Math.sin(performance.now() / 140)) * 0.15;
+  }
+}
+
+// Cartoon motion, purely visual: hop and waddle while moving, crouch before attacking,
+// stretch on release, squash when hit, dizzy wobble when stunned, rigid when frozen, blink.
+export function animateEnemy(G, e, dt) {
+  const u = e.mesh.userData, body = u.body;
+  const t = performance.now() / 1000 + e.modT;
+  const lx = e.lx ?? e.pos.x, lz = e.lz ?? e.pos.z;
+  const sp = Math.hypot(e.pos.x - lx, e.pos.z - lz) / Math.max(dt, 1e-4);
+  e.lx = e.pos.x; e.lz = e.pos.z;
+  let sx = 1, sy = 1, y = 0, rz = 0, rx = 0;
+  const bouncy = e.arch === 'swarmer' || e.arch === 'bomber';
+  if (e.st.freeze > 0) { /* frozen solid */ }
+  else if (e.st.stun > 0) { rz = Math.sin(t * 9) * 0.18; rx = Math.cos(t * 9) * 0.1; }
+  else if (e.state === 'windup') { sy = 0.8; sx = 1.14; }
+  else if (e.state === 'charging') { rx = 0.25; sy = 0.92; sx = 1.05; }
+  else if (e.state === 'recover' || e.state === 'cast') { sy = 1.08; sx = 0.96; }
+  else if (sp > 0.6) {
+    const ph = t * (bouncy ? 14 : 10), b = Math.abs(Math.sin(ph));
+    y = b * (bouncy ? 0.28 : e.boss ? 0.1 : 0.15);
+    sy = 1 + b * 0.08; sx = 1 - b * 0.04;
+    rz = Math.sin(ph) * (e.boss ? 0.04 : 0.12);
+  } else { sy = 1 + Math.sin(t * 2.6) * 0.035; sx = 1 - Math.sin(t * 2.6) * 0.015; }
+  if (e.hitFlash > 0) { const k = e.hitFlash / 0.12; sx *= 1 + k * 0.22; sy *= 1 - k * 0.22; }
+  body.position.y = y; body.scale.set(sx, sy, sx); body.rotation.set(rx, 0, rz);
+  if (e.st.freeze <= 0) tickBlink(e.mesh, dt);
+  if (e.arch === 'bomber' && e.aggro) {
+    e.sparkT = (e.sparkT || 0) - dt;
+    if (e.sparkT <= 0) { e.sparkT = 0.08; G.fx.burst(e.pos.x + Math.sin(e.facing + 1.5) * 0.1 * e.scale, (1.24 * sy + y) * e.scale, e.pos.z + Math.cos(e.facing + 1.5) * 0.1 * e.scale, 0xffc040, 2, 2.5, 0.3, 4); }
   }
 }
