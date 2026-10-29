@@ -3,6 +3,9 @@ export class Input {
   constructor() {
     this.mx = 0; this.mz = 0; this.moveLen = 0;
     this.held = [false, false, false, false, false];
+    this.pressT = [-1e9, -1e9, -1e9, -1e9, -1e9]; // last press time, for tap buffering
+    this.aim = [null, null, null, null, null];    // live drag-aim vector per skill
+    this.fire = [null, null, null, null, null];   // released aim waiting to be cast
     this.potion = false;
     this.keys = new Set();
     this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
@@ -18,7 +21,7 @@ export class Input {
   }
 
   reset() {
-    this.keys.clear(); this.held.fill(false);
+    this.keys.clear(); this.held.fill(false); this.aim.fill(null); this.fire.fill(null);
     this.joy.id = null; this.joy.x = this.joy.y = 0;
     if (this.joyBase) this.joyBase.style.display = 'none';
   }
@@ -67,6 +70,40 @@ export class Input {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // Skill button: tap = auto-target cast (buffered), hold = repeat, drag = aim and cast on release.
+  bindSkill(el, i, aimable) {
+    let id = null, sx = 0, sy = 0;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      id = e.pointerId; sx = e.clientX; sy = e.clientY;
+      try { el.setPointerCapture(e.pointerId); } catch {}
+      el.classList.add('down');
+      this.held[i] = true; this.pressT[i] = performance.now();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id || !aimable) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy, l = Math.hypot(dx, dy);
+      if (l > 24 || this.aim[i]) {
+        this.aim[i] = { x: dx / Math.max(l, 1), z: dy / Math.max(l, 1), len: Math.min(1, l / 110) };
+        this.held[i] = false; this.pressT[i] = -1e9;
+        el.classList.add('aiming');
+      }
+    });
+    const up = (e) => {
+      if (e.pointerId !== id) return;
+      id = null; el.classList.remove('down', 'aiming');
+      if (this.aim[i]) { this.fire[i] = { ...this.aim[i], t: performance.now() }; this.aim[i] = null; }
+      this.held[i] = false;
+    };
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', (e) => { if (e.pointerId === id) { this.aim[i] = null; } up(e); });
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  // held, or tapped within the last 350ms and not yet used
+  wants(i) { return this.isHeld(i) || performance.now() - this.pressT[i] < 350; }
+  consume(i) { this.pressT[i] = -1e9; }
+
   update() {
     const k = this.keys;
     let kx = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
@@ -75,8 +112,10 @@ export class Input {
     const l = Math.hypot(x, z);
     if (l > 1) { x /= l; z /= l; }
     this.mx = x; this.mz = z; this.moveLen = Math.min(1, l);
+    const prev = this.kbHeld || [];
     this.kbHeld = [k.has('Space') || k.has('KeyJ'), k.has('Digit1') || k.has('KeyK'), k.has('Digit2') || k.has('KeyL'), k.has('Digit3') || k.has('KeyU'), k.has('Digit4') || k.has('KeyI')];
     this.kbPotion = k.has('KeyF') || k.has('KeyQ');
+    for (let i = 0; i < 5; i++) if (this.kbHeld[i] && !prev[i]) this.pressT[i] = performance.now();
   }
   isHeld(i) { return this.held[i] || (this.kbHeld && this.kbHeld[i]); }
 }

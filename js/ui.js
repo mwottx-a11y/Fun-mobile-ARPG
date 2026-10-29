@@ -132,7 +132,9 @@ export class UI {
     this.hideAll();
     $('#hud').hidden = false;
     this.game.startHero(hero);
+    document.body.classList.toggle('lefty', !!hero.settings.lefty);
     this.buildSkillButtons();
+    if (!hero.tipShown) { hero.tipShown = true; setTimeout(() => this.toast('Tip: drag a skill button to aim it'), 4000); }
     this.markAlerts();
   }
 
@@ -148,7 +150,7 @@ export class UI {
         h('span', { class: 'ico' }, sk.icon), h('span', { class: 'cd' }), h('span', { class: 'cdt' }),
         unlocked ? null : h('span', { class: 'lock' }, `Lv${UNLOCK_LEVELS[i]}`));
       wrap.append(b);
-      g.input.bindButton(b, () => { g.input.held[i] = true; }, () => { g.input.held[i] = false; });
+      g.input.bindSkill(b, i, i > 0 && !['buff', 'summon'].includes(sk.type));
     });
     this.hudCache = {};
   }
@@ -561,9 +563,11 @@ export class UI {
     const tog = (label, key, onchange) => h('label', { class: 'setting' }, h('span', {}, label), h('input', { type: 'checkbox', ...(st[key] ? { checked: '' } : {}), onchange: (e) => { st[key] = e.target.checked; onchange && onchange(); } }));
     sec.append(
       sel('Auto-salvage on pickup', 'autoSalvage', [[0, 'Off'], [1, 'Common'], [2, 'Common + Magic'], [3, 'Up to Rare'], [4, 'Up to Epic']]),
-      tog('Auto-attack when standing still', 'autoAttack'),
+      tog('Auto-attack nearby enemies when not moving', 'autoAttack'),
+      tog('Left-handed controls', 'lefty', () => document.body.classList.toggle('lefty', !!st.lefty)),
+      tog('Vibration', 'vibrate'),
       sel('Camera zoom', 'zoom', [[0.75, 'Close'], [1, 'Normal'], [1.25, 'Far'], [1.5, 'Very far']], () => (g.zoom = st.zoom)),
-      sel('Render quality', 'quality', [[0.75, 'Low (fast)'], [1, 'Medium'], [1.5, 'High'], [2, 'Ultra']], () => g.setQuality(st.quality)),
+      sel('Render quality', 'quality', [['auto', 'Auto (adapts to device)'], [0.75, 'Low (fast)'], [1, 'Medium'], [1.5, 'High'], [2, 'Ultra']], () => g.applySettings()),
       tog('Screen shake', 'shake'),
       tog('Sound effects', 'sound', () => setMuted(!st.sound)));
     body.append(sec);
@@ -575,6 +579,7 @@ export class UI {
     body.append(wp);
     body.append(h('div', { class: 'section' },
       h('button', { class: 'btn wide', onclick: () => { saveHero(hero); g.running = false; this.closeMenu(); this.showTitle(); } }, 'Save & return to title'),
+      h('p', { class: 'muted small' }, 'Touch: drag the left side to move · tap Attack to strike the nearest enemy (hold to keep attacking) · tap a skill to auto-aim, or drag it to aim by hand.'),
       h('p', { class: 'muted small' }, i18nControls())));
   }
 }

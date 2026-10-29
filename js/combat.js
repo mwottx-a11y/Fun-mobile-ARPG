@@ -165,6 +165,7 @@ export function hurtPlayer(G, amount, elem, src = null, lvl = G.floorLevel) {
   p.hp -= dmg;
   p.hurtFlash = 0.15;
   sfx('hurt');
+  if (dmg > s.maxHp * 0.08) G.vibrate(25);
   G.fx.text(p.pos.x, 2.3, p.pos.z, (blocked ? '🛡' : '') + fmt(dmg), 'hurt');
   G.ui.hurtVignette();
   if (src && !src.dead && s.thorns > 0 && dist2(src.pos.x, src.pos.z, p.pos.x, p.pos.z) < 12) {

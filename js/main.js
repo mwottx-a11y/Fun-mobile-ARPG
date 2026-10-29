@@ -12,7 +12,10 @@ try {
   ui.attach(game);
   window.__game = game;
   const flush = () => { if (game.running && game.hero) saveHero(game.hero); };
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { flush(); if (game.running && document.getElementById('menu').hidden && !game.player.dead) ui.openMenu(ui.menuTab); }
+    else if (game.running) game.keepAwake();
+  });
   addEventListener('pagehide', flush);
   ui.showTitle();
   document.getElementById('loading').remove();

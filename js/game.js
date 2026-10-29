@@ -47,9 +47,24 @@ export class Game {
     this.camShake = 0; this.zoom = 1;
     this.clock = new THREE.Clock();
     this.saveT = 0; this.mapT = 0; this.hudT = 0;
+    this.aimLine = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 1).translate(0, 0.5, 0).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffe080, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    this.aimRing = new THREE.Mesh(GEO.ring(), basic(0xffe080, 0.8, true));
+    this.aimLine.visible = this.aimRing.visible = false;
+    this.scene.add(this.aimLine, this.aimRing);
     this.resize();
     addEventListener('resize', () => this.resize());
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  // Auto quality: lower the render resolution when the frame rate drops, raise it back when there's headroom.
+  adaptResolution(dt) {
+    if (this.qualityMode !== 'auto') return;
+    this.fpsAcc = (this.fpsAcc || 0) + dt; this.fpsN = (this.fpsN || 0) + 1;
+    if (this.fpsAcc < 2) return;
+    const fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0;
+    const max = Math.min(devicePixelRatio, 1.75);
+    if (fps < 42 && this.pr > 0.6) { this.pr = Math.max(0.6, this.pr - 0.25); this.good = 0; this.setQuality(this.pr); }
+    else if (fps > 57 && this.pr < max && ++this.good >= 3) { this.pr = Math.min(max, this.pr + 0.25); this.good = 0; this.setQuality(this.pr); }
   }
 
   resize() {
@@ -78,14 +93,19 @@ export class Game {
     this.recompute(true);
     this.loadFloor(hero.floor || 1);
     this.running = true; this.paused = false;
+    this.keepAwake();
   }
 
   applySettings() {
     const st = this.hero.settings || (this.hero.settings = {});
     this.zoom = st.zoom || 1;
+    if (st.quality === undefined) st.quality = 'auto';
+    if (st.vibrate === undefined) st.vibrate = true;
+    this.qualityMode = st.quality;
+    if (st.quality === 'auto') { this.pr = this.pr || Math.min(devicePixelRatio, 1.5); this.good = 0; }
     if (st.sound === undefined) st.sound = true;
     setMuted(!st.sound);
-    this.setQuality(st.quality || 1.5);
+    this.setQuality(st.quality === 'auto' ? this.pr : st.quality);
   }
 
   recompute(full = false) {
@@ -486,7 +506,7 @@ export class Game {
       this.fx.ring(p.pos.x, p.pos.z, 4, 0xffe080, 0.8);
       this.fx.burst(p.pos.x, 1, p.pos.z, 0xffe080, 40, 7, 1, -1);
       this.ui.toast(`Level up! You are now level ${hero.level}`, 'levelup');
-      sfx('levelup');
+      sfx('levelup'); this.vibrate([40, 60, 40]);
       this.ui.markAlerts();
     }
   }
@@ -540,8 +560,10 @@ export class Game {
 
   // ---------- main loop ----------
   frame() {
-    const dt = Math.min(this.clock.getDelta(), 0.05);
-    if (this.running && !this.paused) this.update(dt);
+    const raw = Math.min(this.clock.getDelta(), 0.05);
+    let dt = raw;
+    if (this.hitStopT > 0) { this.hitStopT -= raw; dt *= 0.12; }
+    if (this.running && !this.paused) { this.update(dt); this.adaptResolution(raw); }
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -708,8 +730,11 @@ export class Game {
 
     // attacks and skills
     const skills = this.cls.skills;
+    const nowMs = performance.now();
     for (let i = 1; i < 5; i++) {
-      if (!input.isHeld(i) || !hero.skillRanks[i] || p.cds[i] > 0 || p.castLock > 0) continue;
+      const aimed = input.fire[i];
+      if (aimed && nowMs - aimed.t > 600) { input.fire[i] = null; continue; }
+      if (!(aimed || input.wants(i)) || !hero.skillRanks[i] || p.cds[i] > 0 || p.castLock > 0) continue;
       const sk = skills[i];
       const cost = skillCost(this, sk);
       if (s.powers.has('bloodpact')) {
@@ -717,31 +742,46 @@ export class Game {
         if (p.hp <= hpCost + 1) continue;
         p.hp -= hpCost;
       } else {
-        if (p.mana < cost) { this.ui.flashMana(); continue; }
+        if (p.mana < cost) { this.ui.flashMana(); input.fire[i] = null; input.consume(i); continue; }
         p.mana -= cost;
       }
-      const target = this.findTarget(skillRange(sk) + 2);
+      const target = aimed ? this.aimTarget(sk, aimed) : this.findTarget(skillRange(sk) + 2);
       castSkill(this, i, target);
+      input.fire[i] = null; input.consume(i);
       p.cds[i] = (sk.cd || 0) * (1 - s.cdr / 100);
       p.castLock = 0.12; p.atkT = Math.max(p.atkT, 0.15);
     }
-    const sk0 = skills[0];
-    const auto = hero.settings.autoAttack && !moving && this.findTarget(skillRange(sk0) + 1);
-    if ((input.isHeld(0) || auto) && p.atkT <= 0 && p.castLock <= 0) {
-      const range = skillRange(sk0);
-      const target = this.findTarget(sk0.type === 'melee' ? 9 : range + 1);
-      const reach = target ? Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)) - target.radius : Infinity;
-      if (sk0.type === 'melee' && target && reach > range * 0.9 && !moving) {
-        // walk toward target
-        const dx = target.pos.x - p.pos.x, dz = target.pos.z - p.pos.z, l = Math.hypot(dx, dz);
-        moveWithCollision(this.dungeon, p.pos, (dx / l) * spd * dt, (dz / l) * spd * dt, p.radius);
-        p.facing = Math.atan2(dx, dz); moving = true;
-      } else {
-        castSkill(this, 0, target && reach <= range + 1 ? target : (sk0.type !== 'melee' ? target : null));
-        p.atkT = 1 / (s.attacksPerSec * (sk0.type === 'melee' ? sk0.speed || 1 : 1));
+    // Basic attack. Tap = strike the nearest enemy (walking to it if needed); hold = keep attacking.
+    const sk0 = skills[0], melee = sk0.type === 'melee', range = skillRange(sk0);
+    const rate = () => 1 / (s.attacksPerSec * (melee ? sk0.speed || 1 : 1));
+    const pressed = input.wants(0);
+    if (moving) p.chase = null;
+    if (p.chase && (p.chase.dead || (p.chaseT -= dt) <= 0)) p.chase = null;
+    const auto = hero.settings.autoAttack && !moving && !p.chase ? this.findTarget(range + (melee ? 1.5 : 1)) : null;
+    if ((pressed || p.chase || auto) && p.castLock <= 0) {
+      let t = p.chase || auto || this.findTarget(melee ? (moving ? range + 1 : 8) : range + 1);
+      const reach = t ? Math.sqrt(dist2(t.pos.x, t.pos.z, p.pos.x, p.pos.z)) - t.radius : Infinity;
+      if (melee && t && reach > range * 0.85) {
+        if (!moving) {
+          // close the distance; keep chasing briefly after a tap so one tap is enough
+          if (p.chase !== t) { p.chase = t; p.chaseT = 2; }
+          const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z, l = Math.hypot(dx, dz) || 1;
+          let mx = dx / l, mz = dz / l;
+          if (!hasLOS(this.dungeon, p.pos.x, p.pos.z, t.pos.x, t.pos.z)) { p.chase = null; }
+          moveWithCollision(this.dungeon, p.pos, mx * spd * dt, mz * spd * dt, p.radius);
+          if (p.swing <= 0) p.facing = Math.atan2(dx, dz);
+          moving = true;
+        } else if (pressed && p.atkT <= 0) { castSkill(this, 0, null); p.atkT = rate(); input.consume(0); }
+      } else if (p.atkT <= 0) {
+        castSkill(this, 0, t);
+        p.atkT = rate();
+        input.consume(0);
+        if (!input.isHeld(0)) p.chase = null;
       }
     }
     if (input.potion || input.kbPotion) { this.usePotion(); input.potion = false; }
+
+    this.updateAim();
 
     // model anim
     p.mesh.rotation.y = p.facing;
@@ -761,6 +801,36 @@ export class Game {
     // stairs
     const st = this.world.stairsPos;
     this.nearStairs = this.world.stairs.visible && dist2(st.x, st.z, p.pos.x, p.pos.z) < 2.6 * 2.6;
+  }
+
+  // Turn a drag-aim vector from a skill button into a target for castSkill.
+  aimTarget(sk, a) {
+    const p = this.player;
+    const reach = sk.type === 'ground' ? 12 : sk.type === 'dash' ? sk.dist || 8 : sk.type === 'nova' ? 0 : 10;
+    const d = Math.max(1.5, a.len * reach);
+    const x = p.pos.x + a.x * d, z = p.pos.z + a.z * d;
+    if (sk.type === 'chain') return this.findTargetNoLos(x, z, 6, new Set()) || null;
+    return { pos: { x, z }, radius: 0, fake: true };
+  }
+  updateAim() {
+    const input = this.input, p = this.player;
+    const i = input.aim.findIndex((a) => a);
+    if (i < 0) { this.aimLine.visible = this.aimRing.visible = false; return; }
+    const sk = this.cls.skills[i], t = this.aimTarget(sk, input.aim[i]);
+    if (!t) { this.aimLine.visible = this.aimRing.visible = false; return; }
+    const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z, l = Math.hypot(dx, dz);
+    this.aimLine.visible = true;
+    this.aimLine.position.set(p.pos.x, 0.12, p.pos.z);
+    this.aimLine.rotation.y = Math.atan2(dx, dz);
+    this.aimLine.scale.set(1, 1, Math.max(1, l));
+    const r = sk.type === 'ground' ? sk.radius * (1 + this.stats.aoe / 100) : sk.type === 'dash' && sk.radius ? sk.radius : 0;
+    this.aimRing.visible = r > 0;
+    if (r) { this.aimRing.position.set(t.pos.x, 0.13, t.pos.z); this.aimRing.scale.set(r, 1, r); }
+  }
+  hitStop(t) { this.hitStopT = Math.max(this.hitStopT || 0, t); }
+  vibrate(ms) { if (this.hero.settings.vibrate !== false && navigator.vibrate) try { navigator.vibrate(ms); } catch {} }
+  async keepAwake() {
+    try { if ('wakeLock' in navigator && !document.hidden) this.wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   }
 
   separate() {

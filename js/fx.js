@@ -153,6 +153,7 @@ export class FX {
   }
 
   text(x, y, z, str, cls = '') {
+    if (this.texts.length > 40) { const old = this.texts.shift(); old.el.style.display = 'none'; this.textPool.push(old); }
     let t = this.textPool.pop();
     if (!t) { t = { el: document.createElement('div') }; this.layer.appendChild(t.el); }
     t.el.className = 'dmg ' + cls;

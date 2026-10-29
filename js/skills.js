@@ -2,7 +2,7 @@
 import { ELEM_COLORS } from './stats.js';
 import { playerHit, healPlayer } from './combat.js';
 import { dist2, rand, clamp } from './util.js';
-import { hasLOS } from './dungeon.js';
+import { hasLOS, moveWithCollision } from './dungeon.js';
 import { sfx } from './sfx.js';
 
 const DEG = Math.PI / 180;
@@ -52,14 +52,21 @@ export function castSkill(G, idx, target) {
       for (let h = 0; h < hits; h++) G.schedule(h * (sk.interval || 0), () => {
         const a = sk.arc >= 360 ? 0 : p.facing;
         G.fx.arc(p.pos.x, p.pos.z, a, range, sk.arc, color);
+        let connected = false;
         for (const e of G.activeEnemies) {
           if (e.dead) continue;
           const d2 = dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z), rr = range + e.radius;
           if (d2 > rr * rr) continue;
-          if (sk.arc < 360 && d2 > 0.5 && angDiff(Math.atan2(e.pos.x - p.pos.x, e.pos.z - p.pos.z), p.facing) > sk.arc * DEG / 2) continue;
+          if (sk.arc < 360 && d2 > (p.radius + e.radius + 0.5) ** 2 && angDiff(Math.atan2(e.pos.x - p.pos.x, e.pos.z - p.pos.z), p.facing) > sk.arc * DEG / 2) continue;
           playerHit(G, e, base);
           G.fx.burst(e.pos.x, 0.9, e.pos.z, color, 4, 3, 0.3);
+          connected = true;
+          if (!e.boss && e.elite < 2 && !e.dead) {
+            const d = Math.sqrt(d2) || 1;
+            moveWithCollision(G.dungeon, e.pos, ((e.pos.x - p.pos.x) / d) * 0.35, ((e.pos.z - p.pos.z) / d) * 0.35, e.radius * 0.8);
+          }
         }
+        if (connected) { G.hitStop(hits > 1 ? 0.02 : 0.05); G.shake(0.06); G.vibrate(8); }
         if (idx === 0 && s.powers.has('echo') && Math.random() < 0.35 && h === 0) G.schedule(0.12, () => {
           G.fx.arc(p.pos.x, p.pos.z, p.facing, range, sk.arc, 0xffffff);
           for (const e of G.activeEnemies) if (!e.dead && dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z) < (range + e.radius) ** 2) playerHit(G, e, { ...base, proc: true });
@@ -126,6 +133,7 @@ export function castSkill(G, idx, target) {
       if (!sk.mult || sk.blink) {
         // evasive dashes go where the stick points, or directly away from the threat
         if (G.input.moveLen > 0.2) { const l = Math.hypot(G.input.mx, G.input.mz); dx = G.input.mx / l; dz = G.input.mz / l; }
+        else if (target && target.fake) { dist = Math.min(dist, Math.max(1.5, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)))); }
         else if (target) { dx = -fx; dz = -fz; }
         p.facing = Math.atan2(dx, dz);
       } else if (target && !sk.path) dist = Math.min(dist, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)));
@@ -163,7 +171,7 @@ export function castSkill(G, idx, target) {
       break;
     }
     case 'chain': {
-      let cur = target || G.findTarget(sk.range || 12);
+      let cur = target && !target.fake ? target : G.findTarget(sk.range || 12);
       if (!cur) { G.fx.bolt([[p.pos.x, 1.2, p.pos.z], [p.pos.x + fx * 6, 1, p.pos.z + fz * 6]], color, 0.15); break; }
       const hit = new Set();
       const pts = [[p.pos.x, 1.2, p.pos.z]];
