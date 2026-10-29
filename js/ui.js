@@ -5,7 +5,7 @@ import { RARITIES, rarityIndex, EQUIP_SLOTS, SLOT_NAMES, SLOT_ICONS, powerById, 
 import { computeStats, itemReqs, reqDeficit, baseAttrs, PRIMS, PRIM_NAMES, PRIM_DESC, STAT_LABELS, fmtStatLine, weaponDamage, estimateDps, xpToNext, ELEM_NAMES, armorDR, dodgeChance } from './stats.js';
 import { salvageValue, upgradeCost, rerollCost, rerollAffix, temperCost, temperItem, itemScore } from './loot.js';
 import { loadHeroes, saveHero, deleteHero, newHero } from './save.js';
-import { skillCost } from './skills.js';
+import { skillCost, effectiveSkill, augmentSlots, comboCap } from './skills.js';
 import { fmt, pick, clamp } from './util.js';
 import { INV_SIZE } from './game.js';
 import { setMuted, sfx } from './sfx.js';
@@ -196,7 +196,7 @@ export class UI {
     for (let i = 0; i < 5; i++) {
       const b = document.querySelector(`#actions .s${i}`);
       if (!b) continue;
-      const sk = g.cls.skills[i];
+      const sk = effectiveSkill(g, i);
       const cdMax = (sk.cd || 0) * (1 - s.cdr / 100);
       const frac = i === 0 || !cdMax ? 0 : clamp(p.cds[i] / cdMax, 0, 1);
       set('cd' + i, Math.round(frac * 50), (v) => { b.style.setProperty('--cd', v * 2 + '%'); b.classList.toggle('cooling', v > 0); });
@@ -289,7 +289,16 @@ export class UI {
     const hero = this.game.hero;
     $('#btn-menu').classList.toggle('alert', hero.statPoints > 0 || hero.skillPoints > 0);
     document.querySelector('#menu-tabs [data-tab=hero]').classList.toggle('alert', hero.statPoints > 0);
-    document.querySelector('#menu-tabs [data-tab=skills]').classList.toggle('alert', hero.skillPoints > 0);
+    const pendingAug = augmentSlots(this.game).some((a) => a.unlocked && !a.chosen);
+    document.querySelector('#menu-tabs [data-tab=skills]').classList.toggle('alert', hero.skillPoints > 0 || pendingAug);
+    $('#btn-menu').classList.toggle('alert', hero.statPoints > 0 || hero.skillPoints > 0 || pendingAug);
+  }
+  comboPop(n) {
+    const el = $('#combo');
+    el.innerHTML = `<b>×${n}</b><small>COMBO +${(n - 1) * 8}%</small>`;
+    el.hidden = false; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    clearTimeout(this.comboTimer);
+    this.comboTimer = setTimeout(() => { el.hidden = true; }, 3000);
   }
 
   showDeath(lost) {
@@ -562,7 +571,13 @@ export class UI {
     const g = this.game, hero = g.hero, cls = g.cls, s = g.stats;
     body.append(h('div', { class: 'section' }, h('h3', {}, 'Skills ', hero.skillPoints ? h('span', { class: 'pill' }, `${hero.skillPoints} points`) : null),
       h('p', { class: 'muted small' }, 'Each rank adds +15% damage (buffs +10% potency). Ranks are unlimited.')));
-    cls.skills.forEach((sk, i) => {
+    const cap = comboCap(hero.level);
+    body.append(h('div', { class: 'section' }, h('h3', {}, '⚡ Combo Chain'),
+      h('p', { class: 'small' }, cap ? `Cast a different skill than your last one within 3s to build a chain (max ×${cap}). Each step adds +8% damage and refunds 6% of the cast's mana. Repeating a skill restarts the chain; basic attacks don't break it.` : 'Unlocks at level 11: chain different skills together for bonus damage and mana refunds.'),
+      cap ? h('p', { class: 'muted small' }, `Chain cap grows at level 25 (×6) and 50 (×8).`) : null));
+    const slots = augmentSlots(g);
+    cls.skills.forEach((base, i) => {
+      const sk = effectiveSkill(g, i);
       const rank = hero.skillRanks[i] || 0;
       const unlocked = rank > 0;
       const info = [];
@@ -576,6 +591,20 @@ export class UI {
         h('div', { class: 'grow' }, h('b', {}, sk.name), unlocked ? h('span', { class: 'pill' }, `Rank ${rank}`) : h('span', { class: 'pill dim' }, `Unlocks at level ${UNLOCK_LEVELS[i]}`),
           h('div', { class: 'small' }, sk.desc), h('div', { class: 'muted small' }, info.join(' · '))),
         unlocked && hero.skillPoints > 0 ? h('button', { class: 'btn small primary', onclick: () => { hero.skillRanks[i]++; hero.skillPoints--; this.renderMenu(); } }, '+1') : null));
+      // augment tiers for this skill: tap an option to choose (free to swap any time)
+      const mine = slots.filter((a) => a.idx === i);
+      const augWrap = h('div', { class: 'aug-wrap' });
+      for (const a of mine) {
+        const row = h('div', { class: 'aug-tier' + (a.unlocked ? '' : ' locked') }, h('small', { class: 'aug-label' }, `Tier ${a.tier ? 'II' : 'I'} · Lv ${a.level}`));
+        for (const o of a.options) row.append(h('button', {
+          class: 'aug-opt' + (a.chosen === o.id ? ' on' : '') + (a.unlocked && !a.chosen ? ' pending' : ''),
+          onclick: () => {
+            if (!a.unlocked) return this.toast(`Unlocks at level ${a.level}`, 'warn');
+            hero.augments = hero.augments || {}; hero.augments[`${a.idx}_${a.tier}`] = o.id; g.recompute(); this.renderMenu();
+          } }, h('b', {}, o.name), h('small', {}, o.desc)));
+        augWrap.append(row);
+      }
+      body.append(augWrap);
     });
     body.append(h('p', { class: 'muted small' }, i18nControls()));
   }
@@ -690,6 +719,7 @@ export class UI {
       fsAvailable() ? tog('Go fullscreen when I press Play', 'fullscreen') : h('p', { class: 'muted small' }, 'Fullscreen isn\'t available in this browser. On iPhone, open the game\'s web address in Safari and use Share → Add to Home Screen.'),
       sel('Camera zoom', 'zoom', [[0.75, 'Close'], [1, 'Normal'], [1.25, 'Far'], [1.5, 'Very far']], () => (g.zoom = st.zoom)),
       sel('Render quality', 'quality', [['auto', 'Auto (adapts to device)'], [0.75, 'Low (fast)'], [1, 'Medium'], [1.5, 'High'], [2, 'Ultra']], () => g.applySettings()),
+      sel('Monster density', 'density', [['normal', 'Normal'], ['high', 'High (default)'], ['swarm', 'Swarm']]),
       tog('Screen shake', 'shake'),
       tog('Sound effects', 'sound', () => setMuted(!st.sound)));
     body.append(sec);

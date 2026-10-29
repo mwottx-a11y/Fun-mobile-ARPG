@@ -15,11 +15,12 @@ import { themeForFloor, ARCHETYPES } from './data/enemies.js';
 import { blobTexture } from './textures.js';
 import { RARITIES, rarityIndex } from './data/items.js';
 import { generateItem, salvageValue } from './loot.js';
-import { castSkill, skillCost, skillRange } from './skills.js';
+import { castSkill, skillCost, skillRange, effectiveSkill, pullIn } from './skills.js';
 import { playerHit, hurtPlayer, healPlayer, killEnemy } from './combat.js';
 import { createEnemy, updateEnemy, rollEliteMods, animateEnemy } from './ai.js';
 import { BARKS, BOSS_LINES } from './data/barks.js';
-import { rand, randi, pick, chance, dist2, clamp, weighted, power, fmt } from './util.js';
+import { AUG_LEVELS } from './data/augments.js';
+import { rand, randi, pick, chance, dist2, clamp, weighted, power, fmt, shuffle } from './util.js';
 import { saveHero } from './save.js';
 import { sfx, setMuted } from './sfx.js';
 
@@ -164,7 +165,7 @@ export class Game {
     this.orbits = [];
     this.fx.clear();
     if (this.world) this.world.dispose();
-    this.boss = null;
+    this.boss = null; this.areas = []; this._roomFlow = null;
   }
 
   loadFloor(floor) {
@@ -209,32 +210,62 @@ export class Game {
 
   maxPotions() { return 4 + Math.floor((this.hero.level || 1) / 15); }
 
+  // Monster density multiplier from Options (High by default).
+  densityMult() { return { normal: 1, high: 1.6, swarm: 2.4 }[this.hero.settings.density || 'high'] || 1.6; }
+
+  // One pack of monsters (normal, champion or rare-elite) belonging to an area, so it can respawn later.
+  spawnPack(cx, cz, area, { small = false, roam = false, noElite = false } = {}) {
+    const floor = this.hero.floor, archs = Object.keys(ARCHETYPES);
+    const r = Math.random();
+    const elite = noElite ? 0 : r < 0.06 + Math.min(0.08, floor * 0.002) ? 2 : r < 0.18 ? 1 : 0;
+    const arch = weighted(archs, (a) => ARCHETYPES[a].weight);
+    const def = ARCHETYPES[arch];
+    let n = def.group ? randi(def.group[0], def.group[1]) : randi(2, 4);
+    if (small) n = Math.max(2, n - 1);
+    const out = [];
+    if (elite === 1) { const mods = rollEliteMods(1); for (let i = 0; i < Math.min(n, 3); i++) out.push(this.spawnAt(arch, cx, cz, 1.6, { elite: 1, mods })); }
+    else if (elite === 2) {
+      out.push(this.spawnAt(arch, cx, cz, 0.5, { elite: 2, mods: rollEliteMods(randi(2, Math.min(4, 2 + Math.floor(floor / 15)))) }));
+      for (let i = 0; i < randi(2, 4); i++) out.push(this.spawnAt(weighted(archs, (a) => ARCHETYPES[a].weight), cx, cz, 2));
+    } else for (let i = 0; i < n; i++) out.push(this.spawnAt(arch, cx, cz, 1.8));
+    for (const e of out) { e.area = area; if (roam) { e.roam = true; e.roamRoom = -1; } }
+    if (area) area.spawned += out.length;
+    return out;
+  }
+
   populate() {
-    const d = this.dungeon, floor = this.hero.floor, theme = this.theme;
-    const archs = Object.keys(ARCHETYPES);
-    for (const room of d.rooms) {
-      if (room === d.start) continue;
-      if (d.isBoss && room === d.end) continue;
-      const area = room.w * room.h;
-      const packs = clamp(Math.round(area / 45 + rand(-0.5, 1) + floor * 0.02), 1, 4);
-      for (let k = 0; k < packs; k++) {
-        const [cx, cz] = d.randomPointInRoom(room, 2);
-        const r = Math.random();
-        const elite = r < 0.07 + Math.min(0.08, floor * 0.002) ? 2 : r < 0.2 ? 1 : 0;
-        const arch = weighted(archs, (a) => ARCHETYPES[a].weight);
-        const def = ARCHETYPES[arch];
-        let n = def.group ? randi(def.group[0], def.group[1]) : randi(2, 4);
-        if (elite === 1) {
-          const mods = rollEliteMods(1);
-          for (let i = 0; i < Math.min(n, 3); i++) this.spawnAt(arch, cx, cz, 1.6, { elite: 1, mods });
-        } else if (elite === 2) {
-          this.spawnAt(arch, cx, cz, 0.5, { elite: 2, mods: rollEliteMods(randi(2, Math.min(4, 2 + Math.floor(floor / 15)))) });
-          for (let i = 0; i < randi(2, 4); i++) this.spawnAt(weighted(archs, (a) => ARCHETYPES[a].weight), cx, cz, 2);
-        } else for (let i = 0; i < n; i++) this.spawnAt(arch, cx, cz, 1.8);
-      }
-      // props
+    const d = this.dungeon, floor = this.hero.floor, dm = this.densityMult();
+    this.areas = []; this.hunterT = rand(15, 25); this.areaT = 0;
+    const [sx, sz] = d.tileCenter(d.start.cx, d.start.cy);
+    d.rooms.forEach((room, ri) => {
+      if (room === d.start) return;
+      if (d.isBoss && room === d.end) return;
+      const [ax, az] = d.tileCenter(room.cx, room.cy);
+      const packs = clamp(Math.round((room.w * room.h / 45 + rand(-0.5, 1) + floor * 0.02) * dm), 1, 7);
+      const area = { x: ax, z: az, room, packs, spawned: 0, lastSeen: -1e9, respawnAt: 0 };
+      this.areas.push(area);
+      for (let k = 0; k < packs; k++) this.spawnPack(...d.randomPointInRoom(room, 2), area);
       if (chance(0.35)) this.addProp('chest', ...d.randomPointInRoom(room, 1));
       for (let i = 0; i < randi(0, 3); i++) this.addProp('pot', ...d.randomPointInRoom(room, 0));
+    });
+    // corridor packs, spaced out and kept away from the entrance
+    const corr = [];
+    for (let y = 1; y < d.H - 1; y++) for (let x = 1; x < d.W - 1; x++) if (d.isFloor(x, y) && d.roomOf[y * d.W + x] < 0 && d.isFloor(x + 1, y) && d.isFloor(x, y + 1)) corr.push([x, y]);
+    shuffle(corr);
+    const want = Math.round((corr.length / 45) * dm), placed = [];
+    for (const [x, y] of corr) {
+      if (placed.length >= want) break;
+      const [wx, wz] = d.tileCenter(x, y);
+      if (dist2(wx, wz, sx, sz) < 24 * 24 || placed.some(([px, pz]) => dist2(px, pz, wx, wz) < 16 * 16)) continue;
+      placed.push([wx, wz]);
+      const area = { x: wx, z: wz, tile: [x, y], packs: 1, spawned: 0, lastSeen: -1e9, respawnAt: 0 };
+      this.areas.push(area);
+      this.spawnPack(wx, wz, area, { small: true });
+    }
+    // packs that wander from room to room
+    if (!d.isBoss) {
+      const rooms = d.rooms.filter((r) => r !== d.start);
+      for (let i = 0; i < Math.min(8, Math.round((2 + floor / 20) * dm)); i++) this.spawnPack(...d.randomPointInRoom(pick(rooms), 2), null, { roam: true, noElite: true });
     }
     if (!d.isBoss && chance(0.65)) {
       const room = pick(d.rooms.filter((r) => r !== d.start));
@@ -244,6 +275,51 @@ export class Game {
       const [bx, bz] = d.tileCenter(d.end.cx, d.end.cy);
       this.boss = createEnemy(this, 'brute', bx, bz, { boss: true });
     }
+  }
+
+  // Areas you have left behind refill; hunting packs keep arriving from out of sight.
+  updateSpawns(dt) {
+    const p = this.player, d = this.dungeon, now = this.hero.playTime;
+    if (p.dead || !this.areas) return;
+    this.areaT -= dt;
+    if (this.areaT <= 0) {
+      this.areaT = 1.5;
+      const alive = new Map();
+      for (const e of this.enemies) if (!e.dead && e.area) alive.set(e.area, (alive.get(e.area) || 0) + 1);
+      for (const a of this.areas) {
+        if (dist2(a.x, a.z, p.pos.x, p.pos.z) < 36 * 36) { a.lastSeen = now; continue; }
+        if (now - a.lastSeen < 20 || now - a.respawnAt < 40 || (alive.get(a) || 0) >= a.spawned * 0.4) continue;
+        a.respawnAt = now; a.spawned = alive.get(a) || 0;
+        for (let k = 0; k < a.packs; k++) this.spawnPack(...(a.room ? d.randomPointInRoom(a.room, 2) : d.tileCenter(...a.tile)), a, { small: !a.room });
+      }
+    }
+    if (d.isBoss) return;
+    this.hunterT -= dt;
+    if (this.hunterT <= 0) {
+      this.hunterT = rand(16, 28) / this.densityMult();
+      if (this.enemies.length > 260) return;
+      for (let t = 0; t < 30; t++) {
+        const a = rand(0, Math.PI * 2), r = rand(22, 30);
+        const x = p.pos.x + Math.sin(a) * r, z = p.pos.z + Math.cos(a) * r;
+        if (!this.fits(x, z, 0.6) || hasLOS(d, p.pos.x, p.pos.z, x, z)) continue;
+        for (const e of this.spawnPack(x, z, null, { small: true, noElite: true })) { e.aggro = true; e.hunter = true; }
+        break;
+      }
+    }
+  }
+
+  // Lazily built distance map toward a room centre, used by roaming packs to path between rooms.
+  roomFlow(ri) {
+    this._roomFlow = this._roomFlow || new Map();
+    if (this._roomFlow.has(ri)) return this._roomFlow.get(ri);
+    const d = this.dungeon, r = d.rooms[ri], f = new Int16Array(d.W * d.H).fill(-1);
+    const q = [r.cy * d.W + r.cx]; f[q[0]] = 0;
+    for (let i = 0; i < q.length; i++) {
+      const c = q[i], x = c % d.W, y = (c / d.W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = (y + dy) * d.W + x + dx; if (d.grid[n] === FLOOR && f[n] < 0) { f[n] = f[c] + 1; q.push(n); } }
+    }
+    this._roomFlow.set(ri, f);
+    return f;
   }
 
   spawnAt(arch, cx, cz, spread, opts) {
@@ -423,10 +499,10 @@ export class Game {
     if (i >= 0) { for (const m of this.orbits[i].meshes) this.scene.remove(m); this.orbits.splice(i, 1); }
   }
 
-  spawnMinion(kind, sk, rank) {
+  spawnMinion(kind, sk, rank, flags = {}) {
     const p = this.player, s = this.stats;
     const mine = this.minions.filter((m) => m.kind === kind);
-    if (mine.length >= sk.max) { const old = mine[0]; this.removeMinion(old); }
+    if (mine.length >= sk.max) { const old = mine[0]; this.removeMinion(old, true); }
     const mesh = buildMinion(kind);
     const a = rand(0, Math.PI * 2);
     let x = p.pos.x + Math.sin(a) * 1.5, z = p.pos.z + Math.cos(a) * 1.5;
@@ -436,7 +512,7 @@ export class Game {
     const maxHp = s.maxHp * 0.45 * sk.hpMult * (1 + s.minionHp / 100) * (1 + 0.1 * (rank - 1));
     this.minions.push({ kind, mesh, pos: mesh.position, hp: maxHp, maxHp, radius: 0.4, atkT: 0, target: null,
       ranged: kind === 'imp', speed: kind === 'wolf' ? 7.5 : 5.5, dmgMult: sk.dmgMult * (1 + s.minionDmg / 100) * (1 + 0.15 * (rank - 1)),
-      elem: kind === 'imp' ? 'fire' : 'phys', facing: 0, retarget: 0 });
+      elem: kind === 'imp' ? 'fire' : 'phys', facing: 0, retarget: 0, martyr: !!flags.martyr, frenzied: !!flags.frenzied });
     this.fx.burst(x, 0.5, z, 0x80ff80, 12, 4, 0.5);
     this.fx.emote(x, 1.7, z, '❤', '');
   }
@@ -444,8 +520,13 @@ export class Game {
     m.hp -= dmg * 0.6;
     if (m.hp <= 0) this.removeMinion(m);
   }
-  removeMinion(m) {
+  removeMinion(m, replaced = false) {
     m.dead = true;
+    if (m.martyr && !replaced) {
+      // Martyrs augment: a fallen minion goes out with a bang
+      this.fx.flash(m.pos.x, m.pos.z, 3, 0xff8040, 0.35, 0.7); this.fx.burst(m.pos.x, 0.6, m.pos.z, 0xff8040, 18, 6, 0.5);
+      this.aoePlayer(m.pos.x, m.pos.z, 3, { mult: 1.5 * m.dmgMult, elem: 'fire', proc: true });
+    }
     this.fx.burst(m.pos.x, 0.6, m.pos.z, 0xd0d0d0, 10, 3, 0.4);
     this.scene.remove(m.mesh);
     const i = this.minions.indexOf(m);
@@ -534,14 +615,14 @@ export class Game {
     this.fx.ring(e.pos.x, e.pos.z, 1.2 * e.scale, 0xffffff, 0.3);
     e.bar.visible = false;
     (this.dying || (this.dying = [])).push({ mesh: e.mesh, t: 0, s: e.mesh.scale.x });
-    this.addXp(22 * power(e.level) * e.xp * s.xpMult);
+    this.addXp(16.5 * power(e.level) * e.xp * s.xpMult);
     const ilvl = e.level + (e.elite ? 1 : 0) + (e.boss ? 2 : 0);
     // loot
     let items = 0, minR = 0;
     if (e.boss) { items = 5 + randi(0, 2); minR = 2; }
     else if (e.elite === 2) { items = randi(2, 3); minR = 1; }
     else if (e.elite === 1) items = chance(0.6) ? 1 : 0;
-    else if (chance(e.minionOf ? 0.02 : 0.085)) items = 1;
+    else if (chance(e.minionOf ? 0.02 : e.hunter ? 0.04 : 0.06)) items = 1;
     if (e.elite && s.powers.has('treasure')) items++;
     for (let i = 0; i < items; i++) this.spawnItem(e.pos.x, e.pos.z, { ilvl, minRarity: minR });
     if (e.boss) {
@@ -565,6 +646,9 @@ export class Game {
     let leveled = false;
     while (hero.xp >= need) {
       hero.xp -= need; hero.level++; hero.statPoints += 3; hero.skillPoints += 1; leveled = true;
+      if (hero.level === 11) this.ui.toast('⚡ Combo Chain unlocked: alternate skills for bonus damage!', 'epic');
+      if (hero.level === 25 || hero.level === 50) this.ui.toast(`⚡ Combo cap raised to ×${hero.level === 25 ? 6 : 8}`, 'epic');
+      for (const k in AUG_LEVELS) AUG_LEVELS[k].forEach((lv, t) => { if (hero.level === lv) this.ui.toast(`✨ New augment for ${this.cls.skills[k].name} (Tier ${t ? 'II' : 'I'}): choose it in Skills`, 'epic'); });
       UNLOCK_LEVELS.forEach((lv, i) => {
         if (hero.level >= lv && !hero.skillRanks[i]) { hero.skillRanks[i] = 1; this.ui.toast(`New skill unlocked: ${this.cls.skills[i].name}!`, 'epic'); this.ui.buildSkillButtons(); }
       });
@@ -654,6 +738,7 @@ export class Game {
 
     this.updatePlayer(dt);
     this.updateFlow();
+    this.updateSpawns(dt);
 
     // active enemies
     this.activeEnemies.length = 0;
@@ -739,6 +824,7 @@ export class Game {
           if (b.pulse.elem === 'light') {
             for (const e of this.activeEnemies) if (!e.dead && dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z) < r * r && chance(0.5)) this.fx.bolt([[p.pos.x, 1.2, p.pos.z], [e.pos.x, 1, e.pos.z]], col, 0.12);
           }
+          if (b.pulse.pull) pullIn(this, p.pos, r, b.pulse.pull * 0.4);
           this.aoePlayer(p.pos.x, p.pos.z, r, { mult: b.pulse.mult, elem: b.pulse.elem, skill: b.id, rank: b.pulse.rank });
         }
       }
@@ -809,7 +895,7 @@ export class Game {
       const aimed = input.fire[i];
       if (aimed && nowMs - aimed.t > 600) { input.fire[i] = null; continue; }
       if (!(aimed || input.wants(i)) || !hero.skillRanks[i] || p.cds[i] > 0 || p.castLock > 0) continue;
-      const sk = skills[i];
+      const sk = effectiveSkill(this, i);
       const cost = skillCost(this, sk);
       if (s.powers.has('bloodpact')) {
         const hpCost = cost * s.maxHp * 0.004;
@@ -826,7 +912,7 @@ export class Game {
       p.castLock = 0.12; p.atkT = Math.max(p.atkT, 0.15);
     }
     // Basic attack. Tap = strike the nearest enemy (walking to it if needed); hold = keep attacking.
-    const sk0 = skills[0], melee = sk0.type === 'melee', range = skillRange(sk0);
+    const sk0 = effectiveSkill(this, 0), melee = sk0.type === 'melee', range = skillRange(sk0);
     const rate = () => 1 / (s.attacksPerSec * (melee ? sk0.speed || 1 : 1));
     const pressed = input.wants(0);
     if (moving) p.chase = null;
@@ -973,7 +1059,7 @@ export class Game {
         if (d > range) { mx = dx / d; mz = dz / d; }
         m.facing = Math.atan2(dx, dz);
         if (d <= range + 0.2 && m.atkT <= 0) {
-          m.atkT = m.ranged ? 1.1 : 0.85;
+          m.atkT = (m.ranged ? 1.1 : 0.85) * (m.frenzied ? 0.6 : 1);
           if (m.ranged) this.spawnProjectile({ owner: 'player', x: m.pos.x, z: m.pos.z, ang: m.facing, speed: 16, range: 12, size: 0.25, elem: 'fire', color: 0xff6020, hitOpts: { mult: 1, elem: 'fire', minion: m.dmgMult, proc: true } });
           else { playerHit(this, t, { mult: 1, elem: m.elem, minion: m.dmgMult, proc: true }); this.fx.arc(m.pos.x, m.pos.z, m.facing, 1.5, 90, 0xffffff, 0.12); }
         }
@@ -1095,7 +1181,7 @@ export class Game {
         m.rotation.y = a + Math.PI / 2;
         for (const e of this.activeEnemies) {
           if (e.dead || o.hitCd.has(e)) continue;
-          if (dist2(e.pos.x, e.pos.z, x, z) < (e.radius + 0.6) ** 2) { o.hitCd.set(e, 0.45); playerHit(this, e, o.hitOpts); this.fx.burst(x, 1, z, o.color, 4, 3, 0.25); }
+          if (dist2(e.pos.x, e.pos.z, x, z) < (e.radius + 0.6) ** 2) { o.hitCd.set(e, o.hitInterval || 0.45); playerHit(this, e, o.hitOpts); this.fx.burst(x, 1, z, o.color, 4, 3, 0.25); }
         }
       });
     }

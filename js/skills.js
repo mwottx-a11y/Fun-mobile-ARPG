@@ -4,6 +4,37 @@ import { playerHit, healPlayer } from './combat.js';
 import { dist2, rand, clamp } from './util.js';
 import { hasLOS, moveWithCollision } from './dungeon.js';
 import { sfx } from './sfx.js';
+import { augmentTiers, AUG_LEVELS } from './data/augments.js';
+
+// The skill as the hero actually has it: base definition + chosen augments (cached per choice set).
+const effCache = new Map();
+export function effectiveSkill(G, idx) {
+  const base = G.cls.skills[idx], aug = (G.hero && G.hero.augments) || {};
+  const key = `${G.cls.id}${idx}:${aug[idx + '_0'] || ''}:${aug[idx + '_1'] || ''}`;
+  let sk = effCache.get(key);
+  if (!sk) {
+    sk = JSON.parse(JSON.stringify(base));
+    sk.flags = {};
+    augmentTiers(base).forEach((tier, t) => {
+      const opt = tier.find((o) => o.id === aug[`${idx}_${t}`]);
+      if (opt) { opt.apply(sk); Object.assign(sk.flags, opt.flags); }
+    });
+    effCache.set(key, sk);
+  }
+  return sk;
+}
+
+// Combo chain (unlocks at level 11): casting a different skill than the last one within 3s
+// builds the chain; repeating a skill or pausing restarts it. Each step: +8% damage, 6% cost refund.
+export const comboCap = (lvl) => (lvl < 11 ? 0 : lvl >= 50 ? 8 : lvl >= 25 ? 6 : 4);
+function comboStep(G, idx) {
+  const p = G.player, cap = comboCap(G.hero.level), now = G.hero.playTime;
+  if (!cap) return 0;
+  if (p.comboLast === idx || now - (p.comboAt || -9) > 3) p.combo = 1;
+  else p.combo = Math.min(cap, (p.combo || 0) + 1);
+  p.comboLast = idx; p.comboAt = now;
+  return p.combo - 1;
+}
 
 const DEG = Math.PI / 180;
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
@@ -29,12 +60,17 @@ export function skillCost(G, sk) {
 
 // Returns true if cast. idx = skill slot index (0 = basic attack)
 export function castSkill(G, idx, target) {
-  const sk = G.cls.skills[idx];
+  const sk = effectiveSkill(G, idx), F = sk.flags;
   const p = G.player, s = G.stats;
   const rank = G.hero.skillRanks[idx] || 1;
   const aoe = 1 + s.aoe / 100;
   const color = ELEM_COLORS[sk.elem || 'phys'];
-  const base = { mult: sk.mult, elem: sk.elem, skill: sk.id, isBasic: idx === 0, status: sk.status, statusChance: sk.statusChance, rank };
+  const step = idx > 0 ? comboStep(G, idx) : 0;
+  const base = { mult: sk.mult * (1 + 0.08 * step), elem: sk.elem, skill: sk.id, isBasic: idx === 0, status: sk.status, statusChance: sk.statusChance, rank, bleedAmp: F.bleedAmp };
+  if (step > 0) {
+    p.mana = Math.min(s.maxMana, p.mana + skillCost(G, sk) * 0.06 * step);
+    G.ui.comboPop(p.combo);
+  }
 
   // aim
   let ang = p.facing;
@@ -49,7 +85,7 @@ export function castSkill(G, idx, target) {
     case 'melee': {
       const range = sk.range * aoe;
       const hits = sk.hits || 1;
-      for (let h = 0; h < hits; h++) G.schedule(h * (sk.interval || 0), () => {
+      const swing = (opts, delay0) => { for (let h = 0; h < hits; h++) G.schedule(delay0 + h * (sk.interval || 0), () => {
         const a = sk.arc >= 360 ? 0 : p.facing;
         G.fx.arc(p.pos.x, p.pos.z, a, range, sk.arc, color);
         let connected = false;
@@ -58,7 +94,7 @@ export function castSkill(G, idx, target) {
           const d2 = dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z), rr = range + e.radius;
           if (d2 > rr * rr) continue;
           if (sk.arc < 360 && d2 > (p.radius + e.radius + 0.5) ** 2 && angDiff(Math.atan2(e.pos.x - p.pos.x, e.pos.z - p.pos.z), p.facing) > sk.arc * DEG / 2) continue;
-          playerHit(G, e, base);
+          playerHit(G, e, opts);
           G.fx.burst(e.pos.x, 0.9, e.pos.z, color, 4, 3, 0.3);
           connected = true;
           if (!e.boss && e.elite < 2 && !e.dead) {
@@ -71,7 +107,9 @@ export function castSkill(G, idx, target) {
           G.fx.arc(p.pos.x, p.pos.z, p.facing, range, sk.arc, 0xffffff);
           for (const e of G.activeEnemies) if (!e.dead && dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z) < (range + e.radius) ** 2) playerHit(G, e, { ...base, proc: true });
         });
-      });
+      }); };
+      swing(base, 0);
+      if (F.echo) swing({ ...base, mult: base.mult * F.echo }, 0.3 + hits * (sk.interval || 0));
       break;
     }
     case 'proj': {
@@ -97,12 +135,15 @@ export function castSkill(G, idx, target) {
     case 'nova': {
       const r = sk.radius * aoe;
       const rings = sk.rings || 1;
-      for (let k = 0; k < rings; k++) G.schedule(k * (sk.interval || 0), () => {
+      const pulseAt = (delay, opts) => { for (let k = 0; k < rings; k++) G.schedule(delay + k * (sk.interval || 0), () => {
+        if (F.pull) pullIn(G, p.pos, r, F.pull);
         G.fx.ring(p.pos.x, p.pos.z, r, color, 0.4); sfx('boom');
         G.fx.flash(p.pos.x, p.pos.z, r, color, 0.3, 0.35);
         G.fx.scatter(p.pos.x, p.pos.z, r, color, 24, 0.5);
-        G.aoePlayer(p.pos.x, p.pos.z, r, base);
-      });
+        G.aoePlayer(p.pos.x, p.pos.z, r, opts);
+      }); };
+      pulseAt(0, base);
+      if (F.echo) pulseAt(0.5 + rings * (sk.interval || 0), { ...base, mult: base.mult * F.echo });
       if (sk.heal) healPlayer(G, s.maxHp * sk.heal);
       G.shake(0.15);
       break;
@@ -113,7 +154,9 @@ export function castSkill(G, idx, target) {
       else if (target) { tx = target.pos.x; tz = target.pos.z; }
       else { tx = p.pos.x + fx * 6; tz = p.pos.z + fz * 6; }
       const r = sk.radius * aoe;
-      if (sk.duration) {
+      const spots = [[tx, tz]];
+      if (F.twin) { const ox = Math.cos(ang) * r * 1.4, oz = -Math.sin(ang) * r * 1.4; spots.push([tx + ox, tz + oz]); }
+      for (const [tx, tz] of spots) if (sk.duration) {
         G.addHazard({ owner: 'player', x: tx, z: tz, radius: r, duration: sk.duration, tick: sk.tick || 0.5, hitOpts: base, color, follow: false });
       } else {
         const delay = sk.delay || 0.3;
@@ -137,9 +180,12 @@ export function castSkill(G, idx, target) {
         else if (target) { dx = -fx; dz = -fz; }
         p.facing = Math.atan2(dx, dz);
       } else if (target && !sk.path) dist = Math.min(dist, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)));
-      const sx = p.pos.x, sz = p.pos.z;
+      const sx = p.pos.x, sz = p.pos.z, kills0 = G.hero.kills || 0;
+      if (F.afterimage) G.schedule(0.05, () => { G.fx.ring(sx, sz, 3 * aoe, color, 0.4); G.fx.burst(sx, 0.5, sz, color, 16, 5, 0.5); G.aoePlayer(sx, sz, 3 * aoe, { ...base, mult: Math.max(1, sk.mult || 0) * 1.2 }); });
       const done = () => {
-        if (sk.radius && sk.mult) {
+        if (F.momentum) G.schedule(0.05, () => { if ((G.hero.kills || 0) > kills0) { p.cds[idx] = 0; G.fx.text(p.pos.x, 2.4, p.pos.z, 'Reset!', 'heal'); } });
+        if (F.fortify) G.addBuff({ id: 'fortify', name: 'Fortify', icon: '🛡️', duration: 3, mods: { dr: 30 } });
+        if (sk.radius && sk.mult && !sk.blink) {
           const r = sk.radius * aoe;
           G.fx.ring(p.pos.x, p.pos.z, r, color, 0.4); G.fx.burst(p.pos.x, 0.4, p.pos.z, color, 18, 6, 0.5);
           G.aoePlayer(p.pos.x, p.pos.z, r, base); G.shake(0.2);
@@ -151,7 +197,7 @@ export function castSkill(G, idx, target) {
         G.fx.burst(sx, 1, sz, color, 16, 4, 0.4);
         G.dashPlayer(dx, dz, dist, 0.01, null);
         G.fx.burst(p.pos.x, 1, p.pos.z, color, 16, 4, 0.4);
-        if (sk.buff) done();
+        done();
       } else {
         G.dashPlayer(dx, dz, dist, sk.id === 'leap' ? 0.35 : 0.2, sk.path ? base : null, done, sk.id === 'leap');
       }
@@ -159,14 +205,15 @@ export function castSkill(G, idx, target) {
     }
     case 'buff': {
       if (sk.heal) healPlayer(G, s.maxHp * sk.heal * (1 + 0.05 * (rank - 1)));
-      G.addBuff({ id: sk.id, name: sk.name, icon: sk.icon, duration: sk.duration, mods: sk.mods, scale: 1 + 0.1 * (rank - 1),
-        pulse: sk.pulse ? { ...sk.pulse, rank, t: 0 } : null });
+      const amp = 1 + (F.buffAmp || 0);
+      G.addBuff({ id: sk.id, name: sk.name, icon: sk.icon, duration: sk.duration, mods: sk.mods, scale: (1 + 0.1 * (rank - 1)) * amp,
+        pulse: sk.pulse ? { ...sk.pulse, mult: sk.pulse.mult * amp * (1 + 0.08 * step), rank, t: 0, pull: F.pull, echo: F.echo } : null });
       G.fx.ring(p.pos.x, p.pos.z, 2.5, sk.pulse ? ELEM_COLORS[sk.pulse.elem] : 0xffe080, 0.5);
       G.fx.burst(p.pos.x, 1, p.pos.z, 0xffe080, 16, 4, 0.6, -2);
       break;
     }
     case 'summon': {
-      for (let i = 0; i < sk.count; i++) G.spawnMinion(sk.minion, sk, rank);
+      for (let i = 0; i < sk.count; i++) G.spawnMinion(sk.minion, sk, rank, F);
       G.fx.ring(p.pos.x, p.pos.z, 2.5, 0x80ff80, 0.5);
       break;
     }
@@ -179,8 +226,9 @@ export function castSkill(G, idx, target) {
       for (let j = 0; j <= jumps && cur; j++) {
         hit.add(cur);
         pts.push([cur.pos.x, 1, cur.pos.z]);
-        const dmg = playerHit(G, cur, base);
+        const dmg = playerHit(G, cur, F.amp ? { ...base, mult: base.mult * (1 + F.amp * j) } : base);
         if (sk.drain) healPlayer(G, dmg * sk.drain, true);
+        if (F.siphon) p.mana = Math.min(s.maxMana, p.mana + s.maxMana * F.siphon);
         G.fx.burst(cur.pos.x, 1, cur.pos.z, color, 5, 3, 0.3);
         let best = null, bd = 7 * 7;
         for (const e of G.activeEnemies) {
@@ -198,11 +246,35 @@ export function castSkill(G, idx, target) {
       break;
     }
     case 'orbit': {
-      G.addOrbit({ id: sk.id, count: sk.count, radius: sk.radius * aoe, duration: sk.duration, hitOpts: base, color });
+      G.addOrbit({ id: sk.id, count: sk.count, radius: sk.radius * aoe, duration: sk.duration, hitOpts: base, color, hitInterval: F.spin ? 0.3 : 0.45 });
       break;
     }
   }
   if (sk.gain) p.mana = Math.min(s.maxMana, p.mana + sk.gain * s.costScale);
   if (sk.mana) { p.mana = Math.min(s.maxMana, p.mana + s.maxMana * sk.mana); G.fx.text(p.pos.x, 2.4, p.pos.z, '+' + Math.round(s.maxMana * sk.mana) + ' mana', 'cold'); }
   return true;
+}
+
+// Vortex augment: drag nearby enemies toward a point.
+export function pullIn(G, at, r, strength) {
+  for (const e of G.activeEnemies) {
+    if (e.dead || e.boss) continue;
+    const dx = at.x - e.pos.x, dz = at.z - e.pos.z, d = Math.hypot(dx, dz);
+    if (d > r + 1 || d < 1) continue;
+    const k = Math.min(strength, d - 0.8) / d;
+    moveWithCollision(G.dungeon, e.pos, dx * k, dz * k, e.radius * 0.8);
+  }
+}
+
+// Augment choices available to this hero now: [{ idx, tier, level, unlocked, chosen, options }]
+export function augmentSlots(G) {
+  const out = [];
+  for (const idx of [1, 2, 3, 4, 0]) {
+    const tiers = augmentTiers(G.cls.skills[idx]);
+    tiers.forEach((options, tier) => {
+      const level = AUG_LEVELS[idx][tier];
+      out.push({ idx, tier, level, unlocked: G.hero.level >= level, chosen: (G.hero.augments || {})[`${idx}_${tier}`], options });
+    });
+  }
+  return out;
 }

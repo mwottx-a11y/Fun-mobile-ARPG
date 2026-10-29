@@ -47,7 +47,7 @@ export function playerHit(G, e, opts) {
   }
 
   // statuses: skill status, element natural chance, and gear chances
-  if (opts.status && chance(opts.statusChance ?? 1)) applyStatus(G, e, opts.status, dmg);
+  if (opts.status && chance(opts.statusChance ?? 1)) applyStatus(G, e, opts.status, opts.status === 'bleed' && opts.bleedAmp ? dmg * (1 + opts.bleedAmp) : dmg);
   const st = s.status;
   const natural = ELEM_STATUS[elem];
   for (const k in st) {

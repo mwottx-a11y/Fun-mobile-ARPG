@@ -217,3 +217,19 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 .dmg.emote { font-size: 22px; color: #ffe040; text-shadow: 0 2px 0 #000, 0 0 6px #000; }
 .dmg.emote.line { font-size: 12px; color: #1a1420; background: #fffbe8; border-radius: 10px; padding: 3px 8px; text-shadow: none; font-weight: 700; box-shadow: 0 2px 0 #0006; }
 .dmg.emote.big { font-size: 30px; }
+
+/* combo counter */
+#combo { position: fixed; right: calc(20px + var(--sar)); bottom: calc(260px + var(--sab)); text-align: center; pointer-events: none !important; text-shadow: 0 2px 0 #000, 0 0 8px #ff8c1a; }
+#combo b { display: block; font-family: Cinzel, serif; font-size: 30px; color: #ffd060; line-height: 1; }
+#combo small { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffe8b0; }
+#combo.pop { animation: combopop 0.25s ease-out; } @keyframes combopop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
+@media (max-height: 460px) { #combo { bottom: calc(200px + var(--sab)); } }
+/* augments */
+.aug-wrap { margin: -4px 0 12px 46px; display: flex; flex-direction: column; gap: 6px; }
+.aug-tier { display: grid; grid-template-columns: 62px 1fr 1fr; gap: 6px; align-items: stretch; }
+.aug-tier.locked { opacity: 0.45; }
+.aug-label { color: var(--muted); font-size: 10px; align-self: center; }
+.aug-opt { text-align: left; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aug-opt b { font-size: 12px; } .aug-opt small { font-size: 10.5px; color: var(--muted); line-height: 1.3; }
+.aug-opt.on { border-color: var(--accent); background: #3a2416; box-shadow: 0 0 10px #ff8c1a44; } .aug-opt.on small { color: #f0d8b8; }
+.aug-opt.pending { border-color: #c45cff; animation: glowp 1.6s infinite; } @keyframes glowp { 50% { box-shadow: 0 0 10px #c45cff88; } }

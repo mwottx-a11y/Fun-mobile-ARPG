@@ -103,6 +103,7 @@ export function updateEnemy(G, e, dt) {
         for (const o of G.activeEnemies) if (!o.aggro && dist2(o.pos.x, o.pos.z, e.pos.x, e.pos.z) < 64) G.onAggro(o, false);
       }
     }
+    wander(G, e, dt);
     return;
   }
   if (e.hp < e.maxHp || e.aggro) e.mesh.visible = true;
@@ -347,5 +348,46 @@ export function animateEnemy(G, e, dt) {
   if (e.arch === 'bomber' && e.aggro) {
     e.sparkT = (e.sparkT || 0) - dt;
     if (e.sparkT <= 0) { e.sparkT = 0.08; G.fx.burst(e.pos.x + Math.sin(e.facing + 1.5) * 0.1 * e.scale, (1.24 * sy + y) * e.scale, e.pos.z + Math.cos(e.facing + 1.5) * 0.1 * e.scale, 0xffc040, 2, 2.5, 0.3, 4); }
+  }
+}
+
+// Unaware monsters aren't statues: roamers walk room to room along a distance map,
+// everyone else shuffles around near where they spawned.
+function wander(G, e, dt) {
+  const d = G.dungeon;
+  let mx = 0, mz = 0;
+  if (e.roam) {
+    if (e.roamRoom < 0 || e.roamWait > 0) {
+      e.roamWait = (e.roamWait || 0) - dt;
+      if (e.roamWait <= 0 && e.roamRoom < 0) { e.roamRoom = Math.floor(Math.random() * d.rooms.length); }
+    }
+    if (e.roamRoom >= 0) {
+      const f = G.roomFlow(e.roamRoom), tx = Math.floor(e.pos.x / TS), ty = Math.floor(e.pos.z / TS);
+      const here = f[ty * d.W + tx];
+      if (here <= 2) { e.roamRoom = -1; e.roamWait = 2 + Math.random() * 4; return; }
+      let best = null, bv = here < 0 ? 1e9 : here;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+        const v = f[(ty + dy) * d.W + tx + dx];
+        if (v >= 0 && v < bv && (!(dx && dy) || (d.isFloor(tx + dx, ty) && d.isFloor(tx, ty + dy)))) { bv = v; best = [tx + dx, ty + dy]; }
+      }
+      if (best) { const [cx, cz] = d.tileCenter(best[0], best[1]); const l = Math.hypot(cx - e.pos.x, cz - e.pos.z) || 1; mx = (cx - e.pos.x) / l; mz = (cz - e.pos.z) / l; }
+    }
+  } else {
+    e.wanderT = (e.wanderT ?? Math.random() * 3) - dt;
+    if (e.wanderT <= 0) {
+      e.wanderT = 2 + Math.random() * 4;
+      e.home = e.home || { x: e.pos.x, z: e.pos.z };
+      const a = Math.random() * Math.PI * 2, r = Math.random() * 3;
+      e.wanderTo = Math.random() < 0.4 ? null : { x: e.home.x + Math.sin(a) * r, z: e.home.z + Math.cos(a) * r };
+    }
+    if (e.wanderTo) {
+      const dx = e.wanderTo.x - e.pos.x, dz = e.wanderTo.z - e.pos.z, l = Math.hypot(dx, dz);
+      if (l < 0.3) e.wanderTo = null; else { mx = dx / l; mz = dz / l; }
+    }
+  }
+  if (mx || mz) {
+    const sp = e.speed * (e.roam ? 0.55 : 0.3) * dt;
+    moveWithCollision(d, e.pos, mx * sp, mz * sp, e.radius * 0.8);
+    e.facing = Math.atan2(mx, mz); e.mesh.rotation.y = e.facing;
   }
 }
