@@ -30,6 +30,14 @@ const NAME_A = ['Ar', 'Bel', 'Cor', 'Dra', 'El', 'Fen', 'Gor', 'Hal', 'Ith', 'Ka
 const NAME_B = ['adan', 'wen', 'ric', 'thas', 'ion', 'mir', 'gash', 'dor', 'ara', 'veth', 'uin', 'oth', 'ys', 'ak', 'iel', 'gar', 'is', 'en', 'rok', 'mar'];
 const randomName = () => pick(NAME_A) + pick(NAME_B);
 
+// Two-tap confirmation (native confirm() is unavailable in embedded viewers and awkward on phones).
+function confirmTap(btn, label, fn) {
+  if (btn.dataset.armed) { delete btn.dataset.armed; fn(); return; }
+  const old = btn.textContent;
+  btn.dataset.armed = '1'; btn.textContent = label; btn.classList.add('armed');
+  setTimeout(() => { if (btn.isConnected && btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = old; btn.classList.remove('armed'); } }, 3000);
+}
+
 export class UI {
   constructor() {
     this.dmgLayer = $('#dmg-layer');
@@ -79,7 +87,7 @@ export class UI {
           h('small', { class: 'muted' }, `Floor ${hero.floor} · Deepest ${hero.maxFloor} · ${fmt(hero.kills || 0)} kills`)),
         h('div', { class: 'hero-card-btns' },
           h('button', { class: 'btn primary', onclick: () => this.play(hero) }, 'Play'),
-          h('button', { class: 'btn small danger', onclick: () => { if (confirm(`Delete ${hero.name} forever?`)) { deleteHero(hero.id); this.showTitle(); } } }, '✕'))));
+          h('button', { class: 'btn small danger', onclick: (e) => confirmTap(e.currentTarget, 'Delete?', () => { deleteHero(hero.id); this.showTitle(); }) }, '✕'))));
     }
     $('#btn-new').onclick = () => this.showCreate();
   }
@@ -311,11 +319,12 @@ export class UI {
       const n = hero.statPoints, main = Math.ceil(n * 2 / 3);
       hero.alloc[c.main] += main; hero.alloc.vit += n - main; hero.statPoints = 0; g.recompute(); this.renderMenu();
     } }, `Auto-assign (${PRIM_NAMES[c.main]} + Vitality)`));
-    if (Object.values(hero.alloc).some((v) => v > 0)) pts.append(h('button', { class: 'btn small wide', onclick: () => {
+    if (Object.values(hero.alloc).some((v) => v > 0)) pts.append(h('button', { class: 'btn small wide', onclick: (ev) => {
       const cost = Math.round(50 * hero.level * hero.level);
       if (hero.gold < cost) return this.toast(`Respec costs ${fmt(cost)} gold`, 'warn');
-      if (!confirm(`Reset all attribute points for ${fmt(cost)} gold?`)) return;
+      confirmTap(ev.currentTarget, `Tap again to reset points for ${fmt(cost)} gold`, () => {
       hero.gold -= cost; for (const k of PRIMS) { hero.statPoints += hero.alloc[k]; hero.alloc[k] = 0; } g.recompute(); this.renderMenu();
+      });
     } }, `Respec attributes (${fmt(Math.round(50 * hero.level * hero.level))} gold)`));
     body.append(pts);
 

@@ -171,3 +171,4 @@ h1 span { font-size: 64px; color: var(--accent); }
 .it-pow { color: #ffa040; font-size: 13px; margin-top: 6px; }
 .compare { font-size: 12px; margin: 4px 0 10px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; } .pos { color: #60ff80; } .neg { color: #ff6060; }
 .equipped-cmp { margin-bottom: 4px; }
+.btn.armed { background: linear-gradient(#b03030, #801818); border-color: #ff6060; }
