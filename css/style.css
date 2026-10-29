@@ -195,3 +195,12 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 @media (max-height: 460px) { body.lefty #actions { transform: scaleX(-1) scale(0.82); transform-origin: bottom left; left: calc(14px + var(--sal)); } }
 /* small phones: slightly smaller action cluster so it never covers the hero */
 @media (max-width: 360px) { #actions { transform: scale(0.88); transform-origin: bottom right; } }
+/* subtle lens vignette for mood (under the HUD) */
+#c + #dmg-layer::before { content: ''; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.45) 100%); }
+.slot.unusable::after { content: ''; position: absolute; inset: 0; border-radius: 8px; background: rgba(200, 30, 30, 0.28); pointer-events: none; }
+.slot .req-x { position: absolute; top: 1px; left: 4px; color: #ff6060; font-weight: 900; font-size: 12px; z-index: 1; }
+.it-req { font-size: 12px; color: var(--muted); margin: 2px 0 4px; } .it-req .bad, .it-req.bad { color: #ff6a6a; }
+.gear-bonus { color: #60e080; font-size: 12px; font-weight: 600; }
+.warn-line { color: #ff8a6a; font-size: 13px; margin: 0 0 8px; }
+#btn-fs { position: fixed; top: calc(134px + var(--sat)); right: calc(8px + var(--sar)); width: 40px; height: 40px; border-radius: 10px; background: #17131fcc; border: 1px solid var(--line); font-size: 18px; }
+#btn-fs-title { display: block; margin: 0 auto 16px; }

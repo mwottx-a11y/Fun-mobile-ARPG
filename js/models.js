@@ -29,7 +29,7 @@ const G = {
 };
 export { G as GEO };
 
-function part(g, mat, sx, sy, sz, x = 0, y = 0, z = 0) {
+export function part(g, mat, sx, sy, sz, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(g, mat);
   m.scale.set(sx, sy, sz); m.position.set(x, y, z);
   return m;
@@ -106,10 +106,10 @@ export function setHeroGear(model, weaponItem, offhandItem, rarityHexOf) {
 
 // Collapse a group of coloured parts into at most two meshes (lit + unlit) with vertex colours.
 // Cuts per-monster draw calls from ~8-12 down to 2 for mobile GPUs.
-const vcLambert = new THREE.MeshLambertMaterial({ vertexColors: true });
-const vcBasic = new THREE.MeshBasicMaterial({ vertexColors: true });
+export const vcLambert = new THREE.MeshLambertMaterial({ vertexColors: true });
+export const vcBasic = new THREE.MeshBasicMaterial({ vertexColors: true });
 const mergedCache = new Map();
-function mergeGroup(group) {
+export function mergeGroup(group) {
   group.updateMatrixWorld(true);
   const buckets = { lit: [], unlit: [] };
   group.traverse((o) => {

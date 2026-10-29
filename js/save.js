@@ -29,7 +29,7 @@ export function newHero(name, race, cls) {
     id: uid(), name, race, cls, level: 1, xp: 0, statPoints: 0, skillPoints: 0, alloc,
     skillRanks: [1, 1, 0, 0, 0], gold: 0, essence: 0, inventory: [], equipped: {},
     floor: 1, maxFloor: 1, potions: 4, kills: 0, created: Date.now(), playTime: 0,
-    settings: { autoSalvage: 0, autoAttack: matchMedia('(pointer: coarse)').matches, zoom: 1, quality: 'auto', shake: true, vibrate: true },
+    settings: { autoSalvage: 0, autoAttack: matchMedia('(pointer: coarse)').matches, zoom: 1, quality: 'auto', shake: true, vibrate: true, fullscreen: matchMedia('(pointer: coarse)').matches },
   };
   // starter weapon of a favored type
   let w;

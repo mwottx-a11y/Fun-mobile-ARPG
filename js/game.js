@@ -9,6 +9,7 @@ import { computeStats, xpToNext, ELEM_COLORS } from './stats.js';
 import { classById, UNLOCK_LEVELS } from './data/classes.js';
 import { raceById } from './data/races.js';
 import { themeForFloor, ARCHETYPES } from './data/enemies.js';
+import { blobTexture } from './textures.js';
 import { RARITIES, rarityIndex } from './data/items.js';
 import { generateItem, salvageValue } from './loot.js';
 import { castSkill, skillCost, skillRange } from './skills.js';
@@ -51,6 +52,10 @@ export class Game {
     this.aimRing = new THREE.Mesh(GEO.ring(), basic(0xffe080, 0.8, true));
     this.aimLine.visible = this.aimRing.visible = false;
     this.scene.add(this.aimLine, this.aimRing);
+    // soft contact shadows under every character, one draw call
+    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }), 160);
+    this.blobs.frustumCulled = false; this.blobs.renderOrder = 1;
+    this.scene.add(this.blobs);
     this.resize();
     addEventListener('resize', () => this.resize());
     this.renderer.setAnimationLoop(() => this.frame());
@@ -74,11 +79,23 @@ export class Game {
     this.camera.fov = w < h ? 62 : 50;
     this.camera.updateProjectionMatrix();
   }
-  setQuality(q) { this.renderer.setPixelRatio(Math.min(devicePixelRatio, q)); this.resize(); }
+  setQuality(q) {
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, q));
+    // at the lowest setting, drop the torch point lights too (one shader recompile)
+    const lightsOn = q > 0.8;
+    for (const l of this.lights.torches) l.visible = lightsOn;
+    this.resize();
+  }
 
   // ---------- hero lifecycle ----------
   startHero(hero) {
     this.hero = hero;
+    if (!hero.reqVersion) {
+      // equipment gained attribute requirements: refund spent points once so old heroes can re-plan
+      hero.reqVersion = 1;
+      const spent = Object.values(hero.alloc).reduce((a, b) => a + b, 0);
+      if (spent > 0) { for (const k in hero.alloc) hero.alloc[k] = 0; hero.statPoints += spent; this.ui.toast(`Gear now has attribute requirements: your ${spent} attribute points were refunded`, 'epic'); }
+    }
     this.cls = classById(hero.cls); this.race = raceById(hero.race);
     if (this.player && this.player.mesh) this.scene.remove(this.player.mesh);
     const mesh = buildHero(this.race, this.cls);
@@ -150,7 +167,7 @@ export class Game {
     hero.maxFloor = Math.max(hero.maxFloor || 1, floor);
     this.theme = themeForFloor(floor);
     this.dungeon = generateDungeon(floor);
-    this.world = buildWorld(this.scene, this.dungeon, this.theme);
+    this.world = buildWorld(this.scene, this.dungeon, this.theme, this.lights);
     applyTheme(this.scene, this.lights, this.theme);
     const d = this.dungeon;
     const [sx, sz] = d.tileCenter(d.start.cx, d.start.cy);
@@ -603,8 +620,8 @@ export class Game {
 
     // world anim
     const now = performance.now() / 1000;
-    if (this.world.stairs.visible) this.world.stairs.userData.ring.rotation.y = now;
-    for (const t of this.world.torches) t.userData.flame.scale.y = 0.2 * (0.85 + Math.sin(now * 12 + t.position.x) * 0.15);
+    this.world.update(dt, now, p.pos);
+    this.updateBlobs();
 
     // camera
     const z = this.zoom * (innerWidth < innerHeight ? 1.4 : 0.88);
@@ -826,6 +843,17 @@ export class Game {
     const r = sk.type === 'ground' ? sk.radius * (1 + this.stats.aoe / 100) : sk.type === 'dash' && sk.radius ? sk.radius : 0;
     this.aimRing.visible = r > 0;
     if (r) { this.aimRing.position.set(t.pos.x, 0.13, t.pos.z); this.aimRing.scale.set(r, 1, r); }
+  }
+  updateBlobs() {
+    const m = this._bm || (this._bm = new THREE.Matrix4());
+    let n = 0;
+    const put = (x, z, r, y = 0) => { if (n >= 160) return; m.makeScale(r * 2.4, 1, r * 2.4).setPosition(x, 0.03 + y * 0, z); this.blobs.setMatrixAt(n++, m); };
+    const p = this.player;
+    if (!p.dead) put(p.pos.x, p.pos.z, 0.42 * this.race.scale);
+    for (const e of this.activeEnemies) if (!e.dead && e.mesh.visible) put(e.pos.x, e.pos.z, e.radius * 1.05);
+    for (const mm of this.minions) put(mm.pos.x, mm.pos.z, 0.38);
+    this.blobs.count = n;
+    this.blobs.instanceMatrix.needsUpdate = true;
   }
   hitStop(t) { this.hitStopT = Math.max(this.hitStopT || 0, t); }
   vibrate(ms) { if (this.hero.settings.vibrate !== false && navigator.vibrate) try { navigator.vibrate(ms); } catch {} }

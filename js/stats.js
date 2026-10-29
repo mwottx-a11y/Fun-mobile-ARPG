@@ -1,7 +1,7 @@
 // Stat aggregation: race + class + level + allocated points + gear + buffs -> final stats.
 import { classById } from './data/classes.js';
 import { raceById } from './data/races.js';
-import { powerById } from './data/items.js';
+import { powerById, REQ_SHARES, rarityIndex } from './data/items.js';
 import { power, clamp, fmt } from './util.js';
 
 export const PRIMS = ['str', 'dex', 'int', 'vit', 'spi', 'lck'];
@@ -60,6 +60,32 @@ export function weaponDamage(item) {
   return [item.dmg[0] * m, item.dmg[1] * m];
 }
 
+// ---- attribute requirements ----
+// Requirements are checked against the hero's own attributes (class, race, level growth, spent points),
+// never gear bonuses, so an item can't hold itself up and every point spent is a real choice.
+export function itemReqs(item) {
+  const shares = REQ_SHARES[item.type];
+  if (!shares) return {};
+  const r = rarityIndex(item.rarity);
+  const k = (item.ilvl - 1) * 0.8 * (1 + 0.08 * r) * (item.rarity === 'mythic' ? 1.25 : 1);
+  const out = {};
+  for (const stat in shares) out[stat] = Math.round(3 + k * shares[stat]);
+  return out;
+}
+export function baseAttrs(hero) {
+  const cls = classById(hero.cls), race = raceById(hero.race);
+  const a = {};
+  for (const k of PRIMS) a[k] = Math.max(0, cls.base[k] + (cls.growth[k] || 0) * (hero.level - 1) + (hero.alloc[k] || 0) + (race.mods[k] || 0));
+  return a;
+}
+// { stat: missingAmount } for unmet requirements (empty when wearable)
+export function reqDeficit(hero, item, attrs = baseAttrs(hero)) {
+  const req = itemReqs(item), miss = {};
+  for (const k in req) if (attrs[k] < req[k]) miss[k] = req[k] - attrs[k];
+  return miss;
+}
+export const meetsReqs = (hero, item, attrs) => !Object.keys(reqDeficit(hero, item, attrs)).length;
+
 export function computeStats(hero, buffs = [], runtime = {}) {
   const cls = classById(hero.cls), race = raceById(hero.race);
   const m = Object.create(null);
@@ -71,9 +97,11 @@ export function computeStats(hero, buffs = [], runtime = {}) {
 
   const powers = new Set();
   let armorBase = 0, evasionBase = 0, weapon = null;
+  const own = baseAttrs(hero), inactive = [];
   for (const slot in hero.equipped) {
     const it = hero.equipped[slot];
     if (!it) continue;
+    if (!meetsReqs(hero, it, own)) { inactive.push(slot); continue; }
     const mult = itemMult(it);
     if (it.implicit) add(it.implicit, it.upg ? 1 + 0.07 * it.upg : 1);
     for (const a of it.affixes) m[a.stat] = (m[a.stat] || 0) + (a.stat === 'projCount' || a.stat === 'pierce' ? a.value : a.value * mult);
@@ -87,7 +115,7 @@ export function computeStats(hero, buffs = [], runtime = {}) {
   for (const k of PRIMS) m[k] = Math.max(0, m[k]);
 
   const P = power(lvl);
-  const s = { raw: m, powers, level: lvl };
+  const s = { raw: m, powers, level: lvl, inactive, own };
   s.main = cls.main; s.mainVal = m[cls.main];
   for (const k of PRIMS) s[k] = m[k];
 

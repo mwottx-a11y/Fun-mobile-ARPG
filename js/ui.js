@@ -2,7 +2,7 @@
 import { RACES, raceById } from './data/races.js';
 import { CLASSES, classById, UNLOCK_LEVELS } from './data/classes.js';
 import { RARITIES, rarityIndex, EQUIP_SLOTS, SLOT_NAMES, SLOT_ICONS, powerById, affixById } from './data/items.js';
-import { computeStats, PRIMS, PRIM_NAMES, PRIM_DESC, STAT_LABELS, fmtStatLine, weaponDamage, estimateDps, xpToNext, ELEM_NAMES, armorDR, dodgeChance } from './stats.js';
+import { computeStats, itemReqs, reqDeficit, baseAttrs, PRIMS, PRIM_NAMES, PRIM_DESC, STAT_LABELS, fmtStatLine, weaponDamage, estimateDps, xpToNext, ELEM_NAMES, armorDR, dodgeChance } from './stats.js';
 import { salvageValue, upgradeCost, rerollCost, rerollAffix, temperCost, temperItem, itemScore } from './loot.js';
 import { loadHeroes, saveHero, deleteHero, newHero } from './save.js';
 import { skillCost } from './skills.js';
@@ -30,6 +30,18 @@ const NAME_A = ['Ar', 'Bel', 'Cor', 'Dra', 'El', 'Fen', 'Gor', 'Hal', 'Ith', 'Ka
 const NAME_B = ['adan', 'wen', 'ric', 'thas', 'ion', 'mir', 'gash', 'dor', 'ara', 'veth', 'uin', 'oth', 'ys', 'ak', 'iel', 'gar', 'is', 'en', 'rok', 'mar'];
 const randomName = () => pick(NAME_A) + pick(NAME_B);
 
+// Fullscreen API (prefixed on older Safari/iPad). iPhone Safari has none: there, Add to Home Screen is the route.
+const docEl = document.documentElement;
+export const fsAvailable = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+export const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+export async function setFullscreen(on) {
+  try {
+    if (on && !isFullscreen()) await (docEl.requestFullscreen ? docEl.requestFullscreen({ navigationUI: 'hide' }) : docEl.webkitRequestFullscreen());
+    else if (!on && isFullscreen()) await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen());
+    return true;
+  } catch { return false; }
+}
+
 // Two-tap confirmation (native confirm() is unavailable in embedded viewers and awkward on phones).
 function confirmTap(btn, label, fn) {
   if (btn.dataset.armed) { delete btn.dataset.armed; fn(); return; }
@@ -48,6 +60,13 @@ export class UI {
     this.mapCanvas = document.createElement('canvas');
     $('#menu-close').onclick = () => this.closeMenu();
     $('#btn-menu').onclick = () => this.openMenu(this.menuTab);
+    if (fsAvailable()) {
+      for (const id of ['#btn-fs', '#btn-fs-title']) $(id).hidden = false;
+      const sync = () => { $('#btn-fs').textContent = isFullscreen() ? '🗗' : '⛶'; $('#btn-fs-title').textContent = isFullscreen() ? '🗗 Exit fullscreen' : '⛶ Play fullscreen'; };
+      const toggle = async () => { if (!(await setFullscreen(!isFullscreen()))) this.toast('Fullscreen was blocked by the browser', 'warn'); };
+      $('#btn-fs').onclick = toggle; $('#btn-fs-title').onclick = toggle;
+      document.addEventListener('fullscreenchange', sync); document.addEventListener('webkitfullscreenchange', sync);
+    }
     for (const b of document.querySelectorAll('#menu-tabs button')) b.onclick = () => this.openMenu(b.dataset.tab);
     $('#minimap').onclick = () => $('#minimap').classList.toggle('big');
     $('#descend').onclick = () => this.game && this.game.descend();
@@ -129,6 +148,7 @@ export class UI {
   }
 
   play(hero) {
+    if (hero.settings && hero.settings.fullscreen && fsAvailable()) setFullscreen(true);
     this.hideAll();
     $('#hud').hidden = false;
     this.game.startHero(hero);
@@ -309,18 +329,23 @@ export class UI {
       h('span', { class: 'big-icon' }, r.icon + c.icon),
       h('div', {}, h('b', {}, hero.name), h('div', {}, `Level ${hero.level} ${r.name} ${c.name}`),
         h('small', { class: 'muted' }, `XP ${fmt(hero.xp)} / ${fmt(xpToNext(hero.level))} · Deepest floor ${hero.maxFloor} · ${fmt(hero.kills || 0)} kills · ${Math.floor((hero.playTime || 0) / 60)} min`))));
-    const pts = h('div', { class: 'section' }, h('h3', {}, `Attributes `, hero.statPoints ? h('span', { class: 'pill' }, `${hero.statPoints} points`) : null));
+    const pts = h('div', { class: 'section' }, h('p', { class: 'muted small' }, 'Equipment requires attributes. Only your own attributes count (the big number); gear bonuses are shown in green.'), h('h3', {}, `Attributes `, hero.statPoints ? h('span', { class: 'pill' }, `${hero.statPoints} points`) : null));
     for (const k of PRIMS) {
       const add = (n) => { n = Math.min(n, hero.statPoints); if (n <= 0) return; hero.alloc[k] = (hero.alloc[k] || 0) + n; hero.statPoints -= n; g.recompute(); this.renderMenu(); };
       pts.append(h('div', { class: 'prim' + (k === c.main ? ' main' : '') },
         h('div', {}, h('b', {}, PRIM_NAMES[k]), h('small', { class: 'muted' }, PRIM_DESC[k])),
-        h('span', { class: 'val' }, Math.round(s[k])),
+        h('span', { class: 'val' }, Math.round(s.own[k]), s[k] - s.own[k] >= 1 ? h('small', { class: 'gear-bonus' }, ` +${Math.round(s[k] - s.own[k])}`) : null),
         hero.statPoints ? h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => add(1) }, '+1'), h('button', { class: 'btn small', onclick: () => add(5) }, '+5')) : null));
     }
     if (hero.statPoints) pts.append(h('button', { class: 'btn primary wide', onclick: () => {
+      // first cover requirements of equipped gear, then split the rest 2:1 main stat / vitality
+      for (const it of Object.values(hero.equipped)) {
+        const miss = reqDeficit(hero, it), need = Object.values(miss).reduce((a, b) => a + b, 0);
+        if (need && need <= hero.statPoints) { for (const k in miss) hero.alloc[k] += miss[k]; hero.statPoints -= need; }
+      }
       const n = hero.statPoints, main = Math.ceil(n * 2 / 3);
       hero.alloc[c.main] += main; hero.alloc.vit += n - main; hero.statPoints = 0; g.recompute(); this.renderMenu();
-    } }, `Auto-assign (${PRIM_NAMES[c.main]} + Vitality)`));
+    } }, `Auto-assign (gear requirements, then ${PRIM_NAMES[c.main]} + Vitality)`));
     if (Object.values(hero.alloc).some((v) => v > 0)) pts.append(h('button', { class: 'btn small wide', onclick: (ev) => {
       const cost = Math.round(50 * hero.level * hero.level);
       if (hero.gold < cost) return this.toast(`Respec costs ${fmt(cost)} gold`, 'warn');
@@ -367,6 +392,8 @@ export class UI {
       doll.append(this.slotEl(it, SLOT_ICONS[slot], SLOT_NAMES[slot], () => it && this.openItem(it, { equippedSlot: slot })));
     }
     body.append(doll);
+    const inactive = computeStats(hero, g.player.buffs).inactive;
+    if (inactive.length) body.append(h('p', { class: 'warn-line' }, `⚠ ${inactive.map((s) => SLOT_NAMES[s]).join(', ')} inactive: attribute requirements not met. Spend points in Hero.`));
     const bar = h('div', { class: 'inv-bar' },
       h('span', {}, `Bag ${hero.inventory.length}/${INV_SIZE}`),
       h('span', { class: 'gold' }, `💰 ${fmt(hero.gold)}`), h('span', { class: 'ess' }, `✦ ${fmt(hero.essence)}`));
@@ -385,13 +412,16 @@ export class UI {
     const g = this.game, hero = g.hero;
     const slots = it.slot === 'ring' ? ['ring1', 'ring2'] : [it.slot];
     const cur = Math.min(...slots.map((s) => (hero.equipped[s] ? itemScore(hero.equipped[s]) : -1)));
+    if (Object.keys(reqDeficit(hero, it)).length) return null;
     return itemScore(it) > cur ? h('span', { class: 'up' }, '▲') : null;
   }
 
   slotEl(it, icon, label, onclick, extra = null) {
     if (!it) return h('div', { class: 'slot empty', onclick }, h('span', { class: 'ico dim' }, icon), label ? h('small', {}, label) : null);
     const r = rarity(it);
-    return h('div', { class: `slot r-${it.rarity}` + (it.locked ? ' locked' : ''), style: `--rc:${r.color}`, onclick },
+    const bad = Object.keys(reqDeficit(this.game.hero, it)).length > 0;
+    return h('div', { class: `slot r-${it.rarity}` + (it.locked ? ' locked' : '') + (bad ? ' unusable' : ''), style: `--rc:${r.color}`, onclick },
+      bad ? h('span', { class: 'req-x' }, '!') : null,
       h('span', { class: 'ico' }, SLOT_ICONS[it.slot]), h('small', { class: 'il' }, it.ilvl + (it.upg ? `+${it.upg}` : '')), extra,
       it.locked ? h('span', { class: 'lk' }, '🔒') : null);
   }
@@ -413,6 +443,9 @@ export class UI {
     const lines = [];
     lines.push(`<div class="it-name" style="color:${r.color}">${esc(it.name)}${it.upg ? ` +${it.upg}` : ''}</div>`);
     lines.push(`<div class="it-sub">${r.name} ${esc(it.baseName)} · ${SLOT_NAMES[it.slot]} · iLvl ${it.ilvl}</div>`);
+    const req = itemReqs(it), miss = reqDeficit(this.game.hero, it);
+    if (Object.keys(req).length) lines.push(`<div class="it-req">Requires ${Object.entries(req).map(([k, v]) => `<span class="${miss[k] ? 'bad' : ''}">${v} ${k.toUpperCase()}</span>`).join(' · ')}</div>`);
+    if (Object.keys(miss).length) lines.push(`<div class="it-req bad">Not usable: needs ${Object.entries(miss).map(([k, v]) => `${v} more ${PRIM_NAMES[k]}`).join(', ')}. Gear bonuses don't count toward requirements.</div>`);
     if (it.dmg) { const [a, b] = weaponDamage(it); lines.push(`<div class="it-base"><b>${fmt(a)}–${fmt(b)}</b> damage · <b>${it.speed.toFixed(2)}</b> attacks/s</div>`); }
     const um = 1 + 0.07 * (it.upg || 0);
     if (it.armor) lines.push(`<div class="it-base"><b>${fmt(it.armor * um)}</b> armor</div>`);
@@ -431,7 +464,10 @@ export class UI {
     const g = this.game, hero = g.hero;
     const before = computeStats(hero, g.player.buffs);
     const eq = { ...hero.equipped, [slot]: it };
-    const after = computeStats({ ...hero, equipped: eq }, g.player.buffs);
+    // for gear you can't wear yet, compare as if the missing points were spent
+    const miss = reqDeficit(hero, it), alloc = { ...hero.alloc };
+    for (const k in miss) alloc[k] = (alloc[k] || 0) + miss[k];
+    const after = computeStats({ ...hero, alloc, equipped: eq }, g.player.buffs);
     const rows = [
       ['DPS', estimateDps(before), estimateDps(after), true],
       ['Life', before.maxHp, after.maxHp], ['Mana', before.maxMana, after.maxMana],
@@ -444,7 +480,8 @@ export class UI {
       const txt = pct ? `${d > 0 ? '+' : ''}${(d / Math.max(1, a) * 100).toFixed(1)}%` : `${d > 0 ? '+' : ''}${Math.abs(d) < 10 ? d.toFixed(1) : fmt(d)}`;
       return `<span class="${cls}">${k} ${txt}</span>`;
     });
-    return out.length ? `<div class="compare"><small>If equipped:</small> ${out.join(' ')}</div>` : '<div class="compare"><small>No major stat change</small></div>';
+    const lbl = Object.keys(miss).length ? 'If equipped (after spending points):' : 'If equipped:';
+    return out.length ? `<div class="compare"><small>${lbl}</small> ${out.join(' ')}</div>` : '<div class="compare"><small>No major stat change</small></div>';
   }
 
   openItem(it, { equippedSlot }) {
@@ -473,8 +510,15 @@ export class UI {
         g.recompute(); this.closeSheet(); this.renderMenu();
       };
       const v = salvageValue(it);
+      const miss = reqDeficit(hero, it), need = Object.values(miss).reduce((a, b) => a + b, 0);
+      const spendAndEquip = (slot) => { for (const k in miss) hero.alloc[k] = (hero.alloc[k] || 0) + miss[k]; hero.statPoints -= need; equip(slot); this.toast(`Spent ${need} attribute points`); };
+      const equipBtns = need === 0
+        ? slots.map((s) => h('button', { class: 'btn primary', onclick: () => equip(s) }, slots.length > 1 ? (s === 'ring1' ? 'Equip Left' : 'Equip Right') : 'Equip'))
+        : hero.statPoints >= need
+          ? slots.map((s) => h('button', { class: 'btn primary', onclick: () => spendAndEquip(s) }, `Spend ${need} pts & equip${slots.length > 1 ? (s === 'ring1' ? ' L' : ' R') : ''}`))
+          : [h('button', { class: 'btn disabled', onclick: () => this.toast(`Needs ${need} more attribute points than you have`, 'warn') }, `Can't equip (need ${need} pts)`)];
       sheet.append(h('div', { class: 'row wrap' },
-        ...slots.map((s) => h('button', { class: 'btn primary', onclick: () => equip(s) }, slots.length > 1 ? (s === 'ring1' ? 'Equip Left' : 'Equip Right') : 'Equip')),
+        ...equipBtns,
         h('button', { class: 'btn', onclick: () => { it.locked = !it.locked; this.openItem(it, {}); this.renderMenu(); } }, it.locked ? '🔓 Unlock' : '🔒 Lock'),
         h('button', { class: 'btn', onclick: () => { this.closeSheet(); this.forgeItem = it; this.openMenu('forge'); } }, '⚒ Forge'),
         h('button', { class: 'btn danger', onclick: () => {
@@ -566,6 +610,7 @@ export class UI {
       tog('Auto-attack nearby enemies when not moving', 'autoAttack'),
       tog('Left-handed controls', 'lefty', () => document.body.classList.toggle('lefty', !!st.lefty)),
       tog('Vibration', 'vibrate'),
+      fsAvailable() ? tog('Go fullscreen when I press Play', 'fullscreen') : h('p', { class: 'muted small' }, 'Fullscreen isn\'t available in this browser. On iPhone, open the game\'s web address in Safari and use Share → Add to Home Screen.'),
       sel('Camera zoom', 'zoom', [[0.75, 'Close'], [1, 'Normal'], [1.25, 'Far'], [1.5, 'Very far']], () => (g.zoom = st.zoom)),
       sel('Render quality', 'quality', [['auto', 'Auto (adapts to device)'], [0.75, 'Low (fast)'], [1, 'Medium'], [1.5, 'High'], [2, 'Ultra']], () => g.applySettings()),
       tog('Screen shake', 'shake'),

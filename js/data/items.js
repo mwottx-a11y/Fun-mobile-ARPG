@@ -209,3 +209,18 @@ export const powerById = (id) => POWERS.find((p) => p.id === id);
 
 export const RARE_NAMES_A = ['Doom', 'Storm', 'Blood', 'Grim', 'Soul', 'Dread', 'Shadow', 'Night', 'Star', 'Bone', 'Rune', 'Ghoul', 'Dragon', 'Wraith', 'Hate', 'Rage', 'Frost', 'Ember', 'Viper', 'Raven', 'Wolf', 'Skull', 'Iron', 'Plague', 'Thunder', 'Void', 'Sun', 'Moon', 'Death', 'Chaos'];
 export const RARE_NAMES_B = ['Bane', 'Grasp', 'Whisper', 'Fang', 'Song', 'Ward', 'Bite', 'Mark', 'Hold', 'Crest', 'Veil', 'Spire', 'Brand', 'Shroud', 'Call', 'Gaze', 'Heart', 'Edge', 'Coil', 'Rend', 'Shell', 'Mantle', 'Wish', 'Fury', 'Oath', 'Knell', 'Weaver', 'Breaker', 'Reaver', 'Howl'];
+
+// Attribute requirements by base type: share of the item-level scaling each attribute carries.
+// Dual-stat bases make every build spread points beyond its main attribute.
+export const REQ_SHARES = {
+  sword: { str: 0.6, dex: 0.6 }, axe: { str: 1 }, mace: { str: 0.7, spi: 0.5 }, dagger: { dex: 1 }, staff: { int: 0.6, spi: 0.6 },
+  wand: { int: 1 }, bow: { dex: 1 }, crossbow: { dex: 0.7, str: 0.5 }, spear: { str: 0.6, dex: 0.6 }, scythe: { int: 0.6, str: 0.6 },
+  hammer: { str: 0.8, vit: 0.4 }, claws: { dex: 0.7, str: 0.4 }, scepter: { spi: 0.7, int: 0.4 },
+  shield: { str: 0.6, vit: 0.5 }, orb: { int: 1 }, quiver: { dex: 1 }, tome: { spi: 0.7, int: 0.4 }, totem: { spi: 0.6, str: 0.5 },
+  helm: { str: 0.8 }, cap: { dex: 0.8 }, circlet: { int: 0.5, spi: 0.5 },
+  plate: { str: 0.7, vit: 0.5 }, jerkin: { dex: 0.7, vit: 0.4 }, robe: { int: 0.5, spi: 0.5 },
+  gauntlets: { str: 0.8 }, grips: { dex: 0.8 }, wraps: { int: 0.4, spi: 0.4 },
+  greaves: { str: 0.6, vit: 0.4 }, boots: { dex: 0.8 }, slippers: { spi: 0.7 },
+  girdle: { str: 0.5, vit: 0.5 }, sash: { spi: 0.6 }, cord: { dex: 0.6 },
+  amulet: { vit: 0.4 }, pendant: { lck: 0.45 }, talisman: { lck: 0.6 }, ring: { lck: 0.35 }, band: { vit: 0.35 }, signet: { lck: 0.3, str: 0.2 },
+};
