@@ -109,7 +109,10 @@ export const AFFIXES = [
   { id: 'lifeOnKill', stat: 'lifeOnKill', kind: 'flat', r: [2, 5], slots: ['weapon', 'ring', 'amulet', 'belt'], w: 5, pre: 'Ghoulish', suf: 'of Feasting' },
   { id: 'lifeSteal', stat: 'lifeSteal', kind: 'pct', r: [0.4, 1.2], slots: ['weapon', 'amulet', 'ring', 'gloves'], w: 4, pre: 'Vampiric', suf: 'of the Vampire' },
   { id: 'mana', stat: 'mana', kind: 'lin', r: [5, 12], slots: g(J, O, ['helm', 'chest']), w: 6, pre: 'Arcane', suf: 'of the Magi' },
-  { id: 'manaRegen', stat: 'manaRegen', kind: 'lin', r: [0.4, 1.0], slots: g(J, O, ['helm', 'chest', 'belt']), w: 6, pre: 'Focused', suf: 'of Meditation' },
+  // legacy flat regen (kept so old items still work; no longer drops)
+  { id: 'manaRegen', stat: 'manaRegen', kind: 'lin', r: [0.4, 1.0], slots: g(J, O, ['helm', 'chest', 'belt']), w: 0, pre: 'Focused', suf: 'of Meditation' },
+  { id: 'manaRegenPct', stat: 'manaRegenPct', kind: 'pct', r: [8, 20], slots: g(J, O, ['helm', 'chest', 'belt']), w: 6, pre: 'Focused', suf: 'of Meditation' },
+  { id: 'manaPct', stat: 'manaPct', kind: 'pct', r: [5, 12], slots: g(J, O, ['helm']), w: 4, pre: 'Mystic', suf: 'of the Wellspring' },
   { id: 'manaOnKill', stat: 'manaOnKill', kind: 'lin', r: [1, 3], slots: ['weapon', 'ring', 'amulet'], w: 4, pre: 'Soulsipping', suf: 'of Souls' },
   { id: 'costRed', stat: 'costRed', kind: 'pct', r: [3, 7], slots: ['helm', 'amulet', 'ring', 'offhand'], w: 4, pre: 'Efficient', suf: 'of Efficiency' },
   { id: 'armor', stat: 'armor', kind: 'flat', r: [3, 7], slots: g(ARM, O), w: 9, pre: 'Plated', suf: 'of the Fortress' },

@@ -198,6 +198,6 @@ export function hurtPlayer(G, amount, elem, src = null, lvl = G.floorLevel) {
 }
 
 // Damage scaling for monsters at a given level
-export const monsterDamage = (lvl) => 8 * power(lvl) * (1 + 0.02 * lvl);
+export const monsterDamage = (lvl) => 8 * power(lvl) * (1 + 0.012 * lvl);
 
 export { ELEM_COLORS };

@@ -37,7 +37,8 @@ export function power(level) {
   return (1 + 0.08 * l) * Math.pow(1.04, l);
 }
 // Monsters get a little extra HP to keep pace with linear primary-stat growth.
-export const monsterHpPower = (l) => power(l) * (1 + 0.035 * l);
+// Extra HP that ramps in as multiplicative damage buckets and spell rotations come online (caps at +60%).
+export const monsterHpPower = (l) => power(l) * (1 + 0.035 * l) * (1 + 0.6 * (1 - Math.exp(-l / 35)));
 
 const SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
 export function fmt(n) {

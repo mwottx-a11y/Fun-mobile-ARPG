@@ -608,6 +608,7 @@ export class Game {
     hero.potions--; p.potionCd = 1.2;
     sfx('potion');
     healPlayer(this, this.stats.maxHp * 0.45 * this.stats.potionMult);
+    p.mana = Math.min(this.stats.maxMana, p.mana + this.stats.maxMana * 0.3);
     p.poisonT = p.burnT = 0;
     this.fx.burst(p.pos.x, 1, p.pos.z, 0xff4060, 16, 3, 0.6, -2);
   }

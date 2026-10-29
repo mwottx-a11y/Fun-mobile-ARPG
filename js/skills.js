@@ -22,7 +22,7 @@ export function skillRange(sk) {
 
 export function skillCost(G, sk) {
   const s = G.stats;
-  let c = (sk.cost || 0) * s.costMult;
+  let c = (sk.cost || 0) * s.costMult * s.costScale;
   if (s.powers.has('overcharge') && c > 0) c *= 1.5;
   return c;
 }
@@ -202,6 +202,7 @@ export function castSkill(G, idx, target) {
       break;
     }
   }
-  if (sk.gain) p.mana = Math.min(s.maxMana, p.mana + sk.gain);
+  if (sk.gain) p.mana = Math.min(s.maxMana, p.mana + sk.gain * s.costScale);
+  if (sk.mana) { p.mana = Math.min(s.maxMana, p.mana + s.maxMana * sk.mana); G.fx.text(p.pos.x, 2.4, p.pos.z, '+' + Math.round(s.maxMana * sk.mana) + ' mana', 'cold'); }
   return true;
 }

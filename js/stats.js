@@ -126,14 +126,15 @@ export function computeStats(hero, buffs = [], runtime = {}) {
   } else { s.wMin = 2 * P; s.wMax = 4 * P; s.wSpeed = 1.3; s.wType = 'fists'; }
   s.wMin += g('addPhys') * 0.75; s.wMax += g('addPhys') * 1.25;
   s.favored = cls.favored.includes(s.wType);
-  s.dmgMult = 1 + s.mainVal / 100 + g('dmgPct') / 100 + (s.favored ? 0.15 : 0);
+  // separate multiplicative buckets so +% damage affixes stay meaningful next to a big main stat
+  s.dmgMult = (1 + s.mainVal / 100) * (1 + g('dmgPct') / 100 + (s.favored ? 0.15 : 0));
   s.elemPct = {
     phys: g('physPct'), fire: g('firePct') + g('elemPct'), cold: g('coldPct') + g('elemPct'), light: g('lightPct') + g('elemPct'),
     poison: g('poisonPct'), holy: g('holyPct'), shadow: g('shadowPct'),
   };
   s.added = { fire: g('addFire'), cold: g('addCold'), light: g('addLight'), poison: g('addPoison') };
-  s.critChance = clamp(5 + s.lck * 0.05 + s.dex * 0.03 + g('critChance'), 0, 85);
-  s.critDmg = 50 + g('critDmg') + s.lck * 0.1;
+  s.critChance = clamp(5 + s.lck * 0.1 + s.dex * 0.04 + g('critChance'), 0, 75);
+  s.critDmg = 75 + g('critDmg') + s.lck * 0.15;
   s.atkSpd = clamp(g('atkSpd'), -50, 250);
   s.attacksPerSec = s.wSpeed * (1 + s.atkSpd / 100);
   s.cdr = clamp(g('cdr'), 0, 60);
@@ -152,15 +153,18 @@ export function computeStats(hero, buffs = [], runtime = {}) {
 
   // Defense
   s.maxHp = Math.max(1, ((40 + s.vit * 5) * P + g('hp')) * (1 + g('hpPct') / 100));
-  s.maxMana = Math.max(10, (40 + s.int + s.spi * 2 + lvl * 1.5 + g('mana')) * (1 + g('manaPct') / 100));
+  // Mana: skill costs scale with level (costScale) so the pool never outgrows them.
+  // Regen is a share of the pool per second, boosted by Spirit, so pool size and Spirit both matter.
+  s.costScale = 1 + 0.03 * (lvl - 1);
+  s.maxMana = Math.max(10, (50 + lvl * 1.5 + s.int * 0.5 + s.spi * 0.6 + g('mana')) * (1 + g('manaPct') / 100));
   s.healMult = Math.max(0, 1 + (g('healPct') + s.spi * 0.1) / 100);
   s.hpRegen = (s.maxHp * 0.004 + g('hpRegen')) * (1 + g('hpRegenPct') / 100);
-  s.manaRegen = (2.5 + s.spi * 0.08 + g('manaRegen')) * (1 + g('manaRegenPct') / 100);
-  s.costMult = clamp(1 - g('costRed') / 100, 0.3, 1);
+  s.manaRegen = (s.maxMana * (0.026 + s.spi * 0.0001) + g('manaRegen')) * (1 + g('manaRegenPct') / 100);
+  s.costMult = clamp(1 - g('costRed') / 100, 0.5, 1);
   s.armor = (armorBase + g('armor') + s.str * 0.3 * P) * (1 + g('armorPct') / 100);
   s.evasion = (evasionBase + g('evasion') + s.dex * 0.3 * P) * (1 + g('evasionPct') / 100);
   s.block = clamp(g('block'), 0, 70);
-  s.dr = clamp(g('dr'), -50, 60);
+  s.dr = clamp(g('dr'), -50, 50);
   s.thorns = (g('thorns') + s.str * 0.05 * P) * (1 + g('thornsPct') / 100);
   const ra = g('resAll') + s.int * 0.04;
   s.res = {
@@ -179,8 +183,9 @@ export function computeStats(hero, buffs = [], runtime = {}) {
 }
 
 // Armor/evasion become percentages relative to the attacker's level.
-export const armorDR = (armor, lvl) => clamp(armor / (armor + 60 * power(lvl)), 0, 0.8);
-export const dodgeChance = (ev, lvl) => clamp(ev / (ev + 90 * power(lvl)), 0, 0.5);
+// The denominators grow a little faster than the power curve because Strength/Dexterity grow linearly too.
+export const armorDR = (armor, lvl) => clamp(armor / (armor + 60 * power(lvl) * (1 + 0.015 * lvl)), 0, 0.75);
+export const dodgeChance = (ev, lvl) => clamp(ev / (ev + 90 * power(lvl) * (1 + 0.015 * lvl)), 0, 0.4);
 
 // Approximate DPS for the character sheet / item comparison.
 export function estimateDps(s) {
