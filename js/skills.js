@@ -1,0 +1,189 @@
+// Generic skill engine: turns class skill definitions into gameplay.
+import { ELEM_COLORS } from './stats.js';
+import { playerHit, healPlayer } from './combat.js';
+import { dist2, rand, clamp } from './util.js';
+import { hasLOS } from './dungeon.js';
+import { sfx } from './sfx.js';
+
+const DEG = Math.PI / 180;
+const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
+
+export function skillRange(sk) {
+  switch (sk.type) {
+    case 'melee': return sk.range;
+    case 'proj': return sk.range || 14;
+    case 'chain': return sk.range || 12;
+    case 'ground': return 12;
+    case 'dash': return (sk.dist || 8) + 2;
+    case 'nova': return sk.radius;
+    default: return 10;
+  }
+}
+
+export function skillCost(G, sk) {
+  const s = G.stats;
+  let c = (sk.cost || 0) * s.costMult;
+  if (s.powers.has('overcharge') && c > 0) c *= 1.5;
+  return c;
+}
+
+// Returns true if cast. idx = skill slot index (0 = basic attack)
+export function castSkill(G, idx, target) {
+  const sk = G.cls.skills[idx];
+  const p = G.player, s = G.stats;
+  const rank = G.hero.skillRanks[idx] || 1;
+  const aoe = 1 + s.aoe / 100;
+  const color = ELEM_COLORS[sk.elem || 'phys'];
+  const base = { mult: sk.mult, elem: sk.elem, skill: sk.id, isBasic: idx === 0, status: sk.status, statusChance: sk.statusChance, rank };
+
+  // aim
+  let ang = p.facing;
+  if (target) ang = Math.atan2(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+  else if (G.input.moveLen > 0.2) ang = Math.atan2(G.input.mx, G.input.mz);
+  p.facing = ang;
+  const fx = Math.sin(ang), fz = Math.cos(ang);
+  p.swing = 0.25;
+  sfx(sk.type === 'melee' ? 'swing' : 'cast');
+
+  switch (sk.type) {
+    case 'melee': {
+      const range = sk.range * aoe;
+      const hits = sk.hits || 1;
+      for (let h = 0; h < hits; h++) G.schedule(h * (sk.interval || 0), () => {
+        const a = sk.arc >= 360 ? 0 : p.facing;
+        G.fx.arc(p.pos.x, p.pos.z, a, range, sk.arc, color);
+        for (const e of G.activeEnemies) {
+          if (e.dead) continue;
+          const d2 = dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z), rr = range + e.radius;
+          if (d2 > rr * rr) continue;
+          if (sk.arc < 360 && d2 > 0.5 && angDiff(Math.atan2(e.pos.x - p.pos.x, e.pos.z - p.pos.z), p.facing) > sk.arc * DEG / 2) continue;
+          playerHit(G, e, base);
+          G.fx.burst(e.pos.x, 0.9, e.pos.z, color, 4, 3, 0.3);
+        }
+        if (idx === 0 && s.powers.has('echo') && Math.random() < 0.35 && h === 0) G.schedule(0.12, () => {
+          G.fx.arc(p.pos.x, p.pos.z, p.facing, range, sk.arc, 0xffffff);
+          for (const e of G.activeEnemies) if (!e.dead && dist2(e.pos.x, e.pos.z, p.pos.x, p.pos.z) < (range + e.radius) ** 2) playerHit(G, e, { ...base, proc: true });
+        });
+      });
+      break;
+    }
+    case 'proj': {
+      let count = (sk.count || 1) + s.projCount;
+      let spread = sk.spread || 0;
+      if (!spread && count > 1) spread = Math.min(60, (count - 1) * 12);
+      const echo = idx === 0 && s.powers.has('echo') && Math.random() < 0.35;
+      const fire = (offset) => {
+        for (let i = 0; i < count; i++) {
+          const a = count === 1 ? ang : spread >= 360 ? ang + (i / count) * Math.PI * 2 : ang - (spread * DEG) / 2 + (spread * DEG) * (i / (count - 1));
+          G.spawnProjectile({
+            owner: 'player', x: p.pos.x + Math.sin(a) * 0.5, z: p.pos.z + Math.cos(a) * 0.5, ang: a + offset,
+            speed: sk.speed || 20, range: sk.range || 14, size: sk.size || 0.25, elem: sk.elem, color,
+            pierce: (sk.pierce || 0) + s.pierce, explode: sk.explode ? sk.explode * aoe : 0,
+            homing: sk.homing || s.powers.has('seeker'), wobble: sk.wobble, hitOpts: base, split: s.powers.has('splitting'),
+          });
+        }
+      };
+      fire(0);
+      if (echo) G.schedule(0.12, () => fire(0.05));
+      break;
+    }
+    case 'nova': {
+      const r = sk.radius * aoe;
+      const rings = sk.rings || 1;
+      for (let k = 0; k < rings; k++) G.schedule(k * (sk.interval || 0), () => {
+        G.fx.ring(p.pos.x, p.pos.z, r, color, 0.4); sfx('boom');
+        G.fx.flash(p.pos.x, p.pos.z, r, color, 0.3, 0.35);
+        G.fx.scatter(p.pos.x, p.pos.z, r, color, 24, 0.5);
+        G.aoePlayer(p.pos.x, p.pos.z, r, base);
+      });
+      if (sk.heal) healPlayer(G, s.maxHp * sk.heal);
+      G.shake(0.15);
+      break;
+    }
+    case 'ground': {
+      let tx, tz;
+      if (sk.self) { tx = p.pos.x; tz = p.pos.z; }
+      else if (target) { tx = target.pos.x; tz = target.pos.z; }
+      else { tx = p.pos.x + fx * 6; tz = p.pos.z + fz * 6; }
+      const r = sk.radius * aoe;
+      if (sk.duration) {
+        G.addHazard({ owner: 'player', x: tx, z: tz, radius: r, duration: sk.duration, tick: sk.tick || 0.5, hitOpts: base, color, follow: false });
+      } else {
+        const delay = sk.delay || 0.3;
+        G.fx.telegraph(tx, tz, r, delay, color);
+        if (sk.id === 'meteor') G.spawnMeteorVisual(tx, tz, delay);
+        G.schedule(delay, () => {
+          G.fx.flash(tx, tz, r, color, 0.4, 0.8); G.fx.burst(tx, 0.5, tz, color, 30, 9, 0.7); G.shake(0.25); sfx('boom');
+          G.aoePlayer(tx, tz, r, base);
+          if (sk.burnGround) G.addHazard({ owner: 'player', x: tx, z: tz, radius: r * 0.8, duration: 3, tick: 0.5, hitOpts: { ...base, mult: sk.mult * 0.12, status: 'burn', statusChance: 0.5 }, color });
+        });
+      }
+      break;
+    }
+    case 'dash': {
+      let dist = sk.dist || 8;
+      if (target) dist = Math.min(dist, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)));
+      const sx = p.pos.x, sz = p.pos.z;
+      const done = () => {
+        if (sk.radius && sk.mult) {
+          const r = sk.radius * aoe;
+          G.fx.ring(p.pos.x, p.pos.z, r, color, 0.4); G.fx.burst(p.pos.x, 0.4, p.pos.z, color, 18, 6, 0.5);
+          G.aoePlayer(p.pos.x, p.pos.z, r, base); G.shake(0.2);
+        }
+        if (sk.buff) G.addBuff({ id: sk.id, name: sk.name, icon: sk.icon, duration: sk.buff.duration, mods: sk.buff.mods, scale: 1 + 0.1 * (rank - 1) });
+      };
+      if (sk.blink) {
+        if (sk.mult) { G.fx.ring(sx, sz, sk.radius * aoe, color, 0.4); G.aoePlayer(sx, sz, sk.radius * aoe, base); }
+        G.fx.burst(sx, 1, sz, color, 16, 4, 0.4);
+        G.dashPlayer(fx, fz, dist, 0.01, null);
+        G.fx.burst(p.pos.x, 1, p.pos.z, color, 16, 4, 0.4);
+        if (sk.buff) done();
+      } else {
+        G.dashPlayer(fx, fz, dist, sk.id === 'leap' ? 0.35 : 0.2, sk.path ? base : null, done, sk.id === 'leap');
+      }
+      break;
+    }
+    case 'buff': {
+      if (sk.heal) healPlayer(G, s.maxHp * sk.heal * (1 + 0.05 * (rank - 1)));
+      G.addBuff({ id: sk.id, name: sk.name, icon: sk.icon, duration: sk.duration, mods: sk.mods, scale: 1 + 0.1 * (rank - 1),
+        pulse: sk.pulse ? { ...sk.pulse, rank, t: 0 } : null });
+      G.fx.ring(p.pos.x, p.pos.z, 2.5, sk.pulse ? ELEM_COLORS[sk.pulse.elem] : 0xffe080, 0.5);
+      G.fx.burst(p.pos.x, 1, p.pos.z, 0xffe080, 16, 4, 0.6, -2);
+      break;
+    }
+    case 'summon': {
+      for (let i = 0; i < sk.count; i++) G.spawnMinion(sk.minion, sk, rank);
+      G.fx.ring(p.pos.x, p.pos.z, 2.5, 0x80ff80, 0.5);
+      break;
+    }
+    case 'chain': {
+      let cur = target || G.findTarget(sk.range || 12);
+      if (!cur) { G.fx.bolt([[p.pos.x, 1.2, p.pos.z], [p.pos.x + fx * 6, 1, p.pos.z + fz * 6]], color, 0.15); break; }
+      const hit = new Set();
+      const pts = [[p.pos.x, 1.2, p.pos.z]];
+      const jumps = (sk.jumps || 0) + s.projCount;
+      for (let j = 0; j <= jumps && cur; j++) {
+        hit.add(cur);
+        pts.push([cur.pos.x, 1, cur.pos.z]);
+        const dmg = playerHit(G, cur, base);
+        if (sk.drain) healPlayer(G, dmg * sk.drain, true);
+        G.fx.burst(cur.pos.x, 1, cur.pos.z, color, 5, 3, 0.3);
+        let best = null, bd = 7 * 7;
+        for (const e of G.activeEnemies) {
+          if (e.dead || hit.has(e)) continue;
+          const d = dist2(e.pos.x, e.pos.z, cur.pos.x, cur.pos.z);
+          if (d < bd && hasLOS(G.dungeon, cur.pos.x, cur.pos.z, e.pos.x, e.pos.z)) { bd = d; best = e; }
+        }
+        cur = best;
+      }
+      G.fx.bolt(pts, color, 0.22);
+      break;
+    }
+    case 'orbit': {
+      G.addOrbit({ id: sk.id, count: sk.count, radius: sk.radius * aoe, duration: sk.duration, hitOpts: base, color });
+      break;
+    }
+  }
+  if (sk.gain) p.mana = Math.min(s.maxMana, p.mana + sk.gain);
+  return true;
+}

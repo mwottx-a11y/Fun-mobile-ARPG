@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Endless Delve</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="dmg-layer"></div>
+<div id="vignette"></div>
+
+<div id="hud" hidden>
+  <div id="joyzone"></div>
+  <div id="joybase"><div id="joyknob"></div></div>
+  <div id="topbar">
+    <div id="lvl-badge"><span id="lvl">1</span></div>
+    <div id="bars">
+      <div id="hp-bar" class="bar"><div id="hp-fill" class="fill"></div><span id="hp-text"></span></div>
+      <div id="mp-bar" class="bar"><div id="mp-fill" class="fill"></div><span id="mp-text"></span></div>
+      <div id="xp-bar" class="bar"><div id="xp-fill" class="fill"></div></div>
+    </div>
+    <button id="btn-menu" aria-label="Menu">☰</button>
+  </div>
+  <div id="subbar"><span id="floor-label"></span><span>💰 <b id="gold">0</b></span><span>✦ <b id="essence">0</b></span></div>
+  <div id="buffs"></div>
+  <canvas id="minimap" width="120" height="120"></canvas>
+  <div id="bossbar" hidden><div id="boss-name"></div><div class="bar"><div id="boss-fill" class="fill"></div></div></div>
+  <div id="toasts"></div>
+  <div id="lootfeed"></div>
+  <button id="descend" hidden>⬇ Descend</button>
+  <div id="actions">
+    <button id="btn-potion" aria-label="Potion">🧪<span id="pot-count">0</span></button>
+  </div>
+  <div id="banner"></div>
+</div>
+
+<div id="screen-title" class="screen" hidden>
+  <div class="title-wrap">
+    <h1>Endless<br><span>Delve</span></h1>
+    <p class="tag">An infinite dungeon. 16 races · 12 classes · endless loot.</p>
+    <div id="hero-list"></div>
+    <button id="btn-new" class="btn primary big">✚ New Hero</button>
+    <p class="muted small center">Best in landscape or portrait on mobile. Add to home screen for fullscreen.</p>
+  </div>
+</div>
+
+<div id="screen-create" class="screen" hidden>
+  <div class="create-wrap">
+    <h2>Create your hero</h2>
+    <div class="row"><input id="hero-name" maxlength="18" placeholder="Name"><button id="btn-rand-name" class="btn small">🎲</button></div>
+    <h3>Race</h3><div id="race-grid" class="pick-grid"></div>
+    <h3>Class</h3><div id="class-grid" class="pick-grid"></div>
+    <div id="create-summary"></div>
+    <div class="row sticky-bottom"><button id="btn-create-back" class="btn">Back</button><button id="btn-create" class="btn primary grow">Begin the Descent</button></div>
+  </div>
+</div>
+
+<div id="screen-death" class="screen" hidden>
+  <div class="death-wrap"><h2>You have fallen</h2><p id="death-info"></p><div id="death-btns" class="col"></div></div>
+</div>
+
+<div id="menu" hidden>
+  <div id="menu-head">
+    <div id="menu-tabs">
+      <button data-tab="hero">🧙<span>Hero</span></button>
+      <button data-tab="gear">🎒<span>Gear</span></button>
+      <button data-tab="skills">✨<span>Skills</span></button>
+      <button data-tab="forge">⚒<span>Forge</span></button>
+      <button data-tab="settings">⚙<span>Options</span></button>
+    </div>
+    <button id="menu-close" aria-label="Close">✕</button>
+  </div>
+  <div id="menu-body"></div>
+</div>
+<div id="sheet-bg" hidden></div>
+<div id="sheet" hidden><div id="sheet-body"></div></div>
+
+<div id="loading">Loading…</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
