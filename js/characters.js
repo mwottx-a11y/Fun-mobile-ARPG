@@ -54,7 +54,7 @@ function head(g, K, cx, cy, cz, r, mood = 'angry') {
       g.add(P(G.box(), skin, r * 1.1, r * 0.42, r * 0.9, cx, cy - r * 0.72, cz + r * 0.08));
       for (let i = 0; i < 4; i++) g.add(P(G.box(), basic(0x202020), 0.012, r * 0.28, 0.02, cx + (i - 1.5) * r * 0.26, cy - r * 0.72, cz + r * 0.54));
       g.add(P(G.oct(), basic(0x202020), r * 0.12, r * 0.16, 0.05, cx, cy - r * 0.25, cz + r * 0.9));
-      eyes(g, { y: cy + r * 0.08, z: cz + r * 0.8, sep: r * 0.38, r: r * 0.26, glow: 0x60d0ff });
+      eyes(g, { y: cy + r * 0.08, z: cz + r * 0.8, sep: r * 0.38, r: r * 0.26, glow: K.eye || 0x60d0ff });
       break;
     case 'goblin':
       g.add(P(G.sphere(), skin, r, r * 0.9, r * 0.95, cx, cy, cz));
@@ -284,7 +284,7 @@ export function buildMinion(kind) {
   return merged('minion_' + kind, (g) => {
     if (kind === 'wolf') return hound(g, { head: 'wolf', skin: 0x9a9aa4, cloth: 0x5a5a66, accent: 0x80ffff });
     if (kind === 'imp') {
-      const K = KITS.hell;
+      const K = { ...KITS.hell, skin: 0xff9a30 }; // orange, so it never matches the Infernal Forge's red imps
       g.add(P(G.sphere(), lambert(K.skin), 0.22, 0.24, 0.2, 0, 0.75, 0));
       for (const s of [-1, 1]) g.add(P(G.box(), lambert(0x8a1a10), 0.35, 0.22, 0.02, s * 0.28, 0.9, -0.12, 0, s * 0.5, s * 0.3));
       head(g, K, 0, 1.08, 0.02, 0.22, 'happy');
@@ -293,7 +293,8 @@ export function buildMinion(kind) {
       return;
     }
     // skeleton pal, dressed up with a bow tie
-    const K = { ...KITS.crypt, head: 'skull' };
+    // spectral green bones and eyes so your skeletons never look like the crypt's
+    const K = { ...KITS.crypt, head: 'skull', skin: 0x9cf0c0, cloth: 0x1f6a44, eye: 0x50ff90 };
     biped(g, K);
     g.add(P(G.box(), lambert(0xd02040), 0.12, 0.07, 0.05, -0.05, 0.8, 0.2, 0, 0, 0.5), P(G.box(), lambert(0xd02040), 0.12, 0.07, 0.05, 0.05, 0.8, 0.2, 0, 0, -0.5), P(G.sphere(), lambert(0xd02040), 0.03, 0.03, 0.03, 0, 0.8, 0.22));
   });

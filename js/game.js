@@ -508,6 +508,10 @@ export class Game {
     let x = p.pos.x + Math.sin(a) * 1.5, z = p.pos.z + Math.cos(a) * 1.5;
     if (!this.dungeon.walkable(x, z)) { x = p.pos.x; z = p.pos.z; }
     mesh.position.set(x, 0, z);
+    // green ally ring, like the coloured rings under elites
+    const ring = new THREE.Mesh(GEO.ring(), basic(0x40ff80, 0.75, true));
+    ring.scale.setScalar(0.75); ring.position.y = 0.05;
+    mesh.add(ring);
     this.scene.add(mesh);
     const maxHp = s.maxHp * 0.45 * sk.hpMult * (1 + s.minionHp / 100) * (1 + 0.1 * (rank - 1));
     this.minions.push({ kind, mesh, pos: mesh.position, hp: maxHp, maxHp, radius: 0.4, atkT: 0, target: null,
