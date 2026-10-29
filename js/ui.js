@@ -6,7 +6,10 @@ import { computeStats, itemReqs, reqDeficit, baseAttrs, PRIMS, PRIM_NAMES, PRIM_
 import { salvageValue, upgradeCost, rerollCost, rerollAffix, temperCost, temperItem, itemScore } from './loot.js';
 import { loadHeroes, saveHero, deleteHero, newHero } from './save.js';
 import { skillCost, effectiveSkill, augmentSlots, comboCap } from './skills.js';
-import { fmt, pick, clamp } from './util.js';
+import { fmt, pick, clamp, power } from './util.js';
+
+// Respecs are meant to be nearly free: about one gold pile at your level.
+export const respecCost = (lvl) => Math.round(power(lvl) * 10);
 import { INV_SIZE } from './game.js';
 import { setMuted, sfx } from './sfx.js';
 import { buyPrice, sellPrice, gamblePrice, potionPrice, refreshPrice, ensureShop, rollStock, gambleItem, GAMBLE_SLOTS } from './shop.js';
@@ -361,12 +364,12 @@ export class UI {
       hero.alloc[c.main] += main; hero.alloc.vit += n - main; hero.statPoints = 0; g.recompute(); this.renderMenu();
     } }, `Auto-assign (gear requirements, then ${PRIM_NAMES[c.main]} + Vitality)`));
     if (Object.values(hero.alloc).some((v) => v > 0)) pts.append(h('button', { class: 'btn small wide', onclick: (ev) => {
-      const cost = Math.round(50 * hero.level * hero.level);
+      const cost = respecCost(hero.level);
       if (hero.gold < cost) return this.toast(`Respec costs ${fmt(cost)} gold`, 'warn');
       confirmTap(ev.currentTarget, `Tap again to reset points for ${fmt(cost)} gold`, () => {
       hero.gold -= cost; for (const k of PRIMS) { hero.statPoints += hero.alloc[k]; hero.alloc[k] = 0; } g.recompute(); this.renderMenu();
       });
-    } }, `Respec attributes (${fmt(Math.round(50 * hero.level * hero.level))} gold)`));
+    } }, `Respec attributes (${fmt(respecCost(hero.level))} gold)`));
     body.append(pts);
 
     const lvl = hero.floor;
@@ -606,6 +609,17 @@ export class UI {
       }
       body.append(augWrap);
     });
+    // skill ranks can be reset too, for the same nominal price
+    const spent = hero.skillRanks.reduce((a, r) => a + Math.max(0, (r || 0) - 1), 0);
+    if (spent > 0) body.append(h('button', { class: 'btn small wide', onclick: (ev) => {
+      const cost = respecCost(hero.level);
+      if (hero.gold < cost) return this.toast(`Resetting skills costs ${fmt(cost)} gold`, 'warn');
+      confirmTap(ev.currentTarget, `Tap again to refund ${spent} skill points for ${fmt(cost)} gold`, () => {
+        hero.gold -= cost;
+        hero.skillRanks = hero.skillRanks.map((r) => (r ? 1 : 0));
+        hero.skillPoints += spent; g.recompute(); this.renderMenu();
+      });
+    } }, `Reset skill ranks (${fmt(respecCost(hero.level))} gold)`));
     body.append(h('p', { class: 'muted small' }, i18nControls()));
   }
 
