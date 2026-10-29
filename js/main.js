@@ -1,6 +1,7 @@
 import { UI } from './ui.js';
 import { Game } from './game.js';
 import { initAudio } from './sfx.js';
+import { saveHero } from './save.js';
 
 addEventListener('pointerdown', initAudio);
 addEventListener('keydown', initAudio);
@@ -10,6 +11,9 @@ try {
   const game = new Game(document.getElementById('c'), ui);
   ui.attach(game);
   window.__game = game;
+  const flush = () => { if (game.running && game.hero) saveHero(game.hero); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  addEventListener('pagehide', flush);
   ui.showTitle();
   document.getElementById('loading').remove();
 } catch (e) {

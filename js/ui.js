@@ -132,6 +132,7 @@ export class UI {
   buildSkillButtons() {
     const g = this.game, cls = g.cls;
     const wrap = $('#actions');
+    g.input.held.fill(false);
     wrap.querySelectorAll('.skill').forEach((b) => b.remove());
     cls.skills.forEach((sk, i) => {
       const unlocked = !!g.hero.skillRanks[i];
@@ -560,7 +561,7 @@ export class UI {
 
     const wp = h('div', { class: 'section' }, h('h3', {}, '🌀 Waypoints'), h('p', { class: 'muted small' }, 'Every 5th floor is guarded by a boss. Waypoints unlock at the floor after each boss.'));
     const row = h('div', { class: 'row wrap' });
-    for (let f = 1; f <= hero.maxFloor; f += 5) row.append(h('button', { class: 'btn small' + (f === hero.floor ? ' primary' : ''), onclick: () => { this.closeMenu(); g.loadFloor(f); } }, `Floor ${f}`));
+    for (let f = 1; f <= hero.maxFloor; f += 5) row.append(h('button', { class: 'btn small' + (f === hero.floor ? ' primary' : ''), onclick: () => { if (g.player.dead) return this.toast('You are dead', 'warn'); this.closeMenu(); g.loadFloor(f); } }, `Floor ${f}`));
     wp.append(row);
     body.append(wp);
     body.append(h('div', { class: 'section' },

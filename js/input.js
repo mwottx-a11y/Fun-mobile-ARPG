@@ -13,7 +13,14 @@ export class Input {
       if (e.code === 'Space') e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); this.held.fill(false); this.joy.id = null; });
+    addEventListener('blur', () => this.reset());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.reset(); });
+  }
+
+  reset() {
+    this.keys.clear(); this.held.fill(false);
+    this.joy.id = null; this.joy.x = this.joy.y = 0;
+    if (this.joyBase) this.joyBase.style.display = 'none';
   }
 
   bindJoystick(zone, baseEl, knobEl) {
@@ -48,6 +55,7 @@ export class Input {
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
+    zone.addEventListener('lostpointercapture', end);
   }
 
   bindButton(el, onDown, onUp) {
@@ -55,6 +63,7 @@ export class Input {
     const up = (e) => { el.classList.remove('down'); onUp && onUp(); };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 

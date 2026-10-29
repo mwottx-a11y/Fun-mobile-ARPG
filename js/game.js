@@ -94,8 +94,8 @@ export class Game {
     this.stats = computeStats(this.hero, p.buffs);
     if (full) { p.hp = this.stats.maxHp; p.mana = this.stats.maxMana; }
     else {
-      if (prevMax && this.stats.maxHp > prevMax) p.hp += this.stats.maxHp - prevMax;
-      if (prevMana && this.stats.maxMana > prevMana) p.mana += this.stats.maxMana - prevMana;
+      if (prevMax) p.hp *= this.stats.maxHp / prevMax;
+      if (prevMana) p.mana *= this.stats.maxMana / prevMana;
       p.hp = Math.min(p.hp, this.stats.maxHp); p.mana = Math.min(p.mana, this.stats.maxMana);
     }
     const rh = (it) => RARITIES[rarityIndex(it.rarity)].hex;
@@ -136,7 +136,7 @@ export class Game {
     const [sx, sz] = d.tileCenter(d.start.cx, d.start.cy);
     const p = this.player;
     p.pos.set(sx, 0, sz); p.dash = null; p.dead = false; p.buffs = p.buffs.filter((b) => b.shrine);
-    p.cds.fill(0);
+    p.cds.fill(0); this.nearStairs = false;
     hero.potions = this.maxPotions();
     this.flow = new Int32Array(d.W * d.H); p.lastTile = -1;
     this.populate();
@@ -206,6 +206,8 @@ export class Game {
   }
 
   descend() {
+    if (this.player.dead || !this.nearStairs) return;
+    this.nearStairs = false;
     const next = this.hero.floor + 1;
     this.ui.toast(`Descending to floor ${next}...`);
     sfx('stairs');
@@ -308,7 +310,7 @@ export class Game {
     if (o.elem === 'phys' && o.owner === 'player' && sz < 0.4) pr.mesh.scale.set(sz * 0.5, sz * 0.5, sz * 2.4);
     Object.assign(pr, { owner: o.owner, x: o.x, z: o.z, ang: o.ang, speed: o.speed, life: (o.range || 14) / o.speed, size: sz,
       elem: o.elem, pierce: o.pierce || 0, explode: o.explode || 0, homing: !!o.homing, wobble: !!o.wobble, hitOpts: o.hitOpts,
-      split: o.split, dmg: o.dmg, src: o.src, color: o.color, hit: new Set(), t: 0, noSplit: !!o.noSplit });
+      split: o.split, exploded: false, dmg: o.dmg, src: o.src, color: o.color, hit: new Set(), t: 0, noSplit: !!o.noSplit });
     pr.mesh.position.set(o.x, 1, o.z);
     pr.mesh.rotation.y = o.ang;
     this.scene.add(pr.mesh);
@@ -396,7 +398,7 @@ export class Game {
       const steps = Math.ceil(dist / 0.3);
       for (let i = 0; i < steps; i++) {
         const nx = p.pos.x + fx * 0.3, nz = p.pos.z + fz * 0.3;
-        if (!this.dungeon.walkable(nx, nz)) break;
+        if (!this.fits(nx, nz, p.radius)) break;
         p.pos.x = nx; p.pos.z = nz;
       }
       p.invuln = Math.max(p.invuln, 0.2);
@@ -406,6 +408,8 @@ export class Game {
     p.dash = { vx: (fx * dist) / time, vz: (fz * dist) / time, t: time, total: time, pathOpts, hit: new Set(), onDone, leap };
     p.invuln = Math.max(p.invuln, time + 0.1);
   }
+
+  fits(x, z, r) { const d = this.dungeon; return d.walkable(x - r, z - r) && d.walkable(x + r, z - r) && d.walkable(x - r, z + r) && d.walkable(x + r, z + r); }
 
   spawnGold(x, z, lvl, mult = 1) {
     const amt = Math.max(1, Math.round(power(lvl) * rand(3, 8) * mult * (1 + this.stats.gf / 100)));
@@ -435,6 +439,7 @@ export class Game {
 
   onEnemyKilled(e) {
     const hero = this.hero, s = this.stats;
+    if (e.suicide) { this.scene.remove(e.mesh); return; }
     hero.kills = (hero.kills || 0) + 1;
     this.fx.burst(e.pos.x, 0.8 * e.scale, e.pos.z, this.theme.color, 14, 5, 0.6);
     this.scene.remove(e.mesh);
@@ -489,14 +494,14 @@ export class Game {
   playerDied() {
     const p = this.player;
     if (p.dead) return;
-    p.dead = true; p.hp = 0;
+    p.dead = true; p.hp = 0; this.nearStairs = false;
     sfx('death');
     const lost = Math.floor(this.hero.gold * 0.05);
     this.hero.gold -= lost;
     this.hero.deaths = (this.hero.deaths || 0) + 1;
     this.fx.burst(p.pos.x, 1, p.pos.z, 0xff2020, 40, 6, 1);
     saveHero(this.hero);
-    setTimeout(() => this.ui.showDeath(lost), 900);
+    setTimeout(() => { if (this.player.dead) this.ui.showDeath(lost); }, 900);
   }
 
   respawn(floor) {
@@ -617,7 +622,10 @@ export class Game {
     if (p.chillT > 0) p.chillT -= dt;
     if (p.burnT > 0) { p.burnT -= dt; p.hp -= p.burnDps * dt * (1 - s.res.fire / 100); }
     if (p.poisonT > 0) { p.poisonT -= dt; p.hp -= p.poisonDps * dt * (1 - s.res.poison / 100); }
-    if (p.hp <= 0 && !p.dead) { p.hp = 1; hurtPlayer(this, 2, 'phys'); }
+    if (p.hp <= 0 && !p.dead) {
+      if (s.powers.has('phoenix') && p.phoenixCd <= 0) { p.phoenixCd = 90; p.hp = s.maxHp * 0.5; p.invuln = 2; p.burnT = p.poisonT = 0; this.ui.toast('🔥 Phoenix Heart revives you!', 'legendary'); }
+      else { this.playerDied(); return; }
+    }
     if (p.soulT > 0) { p.soulT -= dt; if (p.soulT <= 0) p.souls = 0; }
 
     // buffs
@@ -730,7 +738,7 @@ export class Game {
         p.facing = Math.atan2(dx, dz); moving = true;
       } else {
         castSkill(this, 0, target && reach <= range + 1 ? target : (sk0.type !== 'melee' ? target : null));
-        p.atkT = 1 / (s.attacksPerSec * (sk0.speed || 1));
+        p.atkT = 1 / (s.attacksPerSec * (sk0.type === 'melee' ? sk0.speed || 1 : 1));
       }
     }
     if (input.potion || input.kbPotion) { this.usePotion(); input.potion = false; }
@@ -790,7 +798,7 @@ export class Game {
       const t = m.target;
       let mx = 0, mz = 0;
       const dp = Math.sqrt(dist2(m.pos.x, m.pos.z, p.pos.x, p.pos.z));
-      if (dp > 14) { m.pos.x = p.pos.x + rand(-1, 1); m.pos.z = p.pos.z + rand(-1, 1); }
+      if (dp > 14) { const nx = p.pos.x + rand(-1, 1), nz = p.pos.z + rand(-1, 1); if (this.fits(nx, nz, 0.3)) { m.pos.x = nx; m.pos.z = nz; } else { m.pos.x = p.pos.x; m.pos.z = p.pos.z; } }
       if (t && dp < 12) {
         const dx = t.pos.x - m.pos.x, dz = t.pos.z - m.pos.z, d = Math.hypot(dx, dz);
         const range = m.ranged ? 8 : 1.3 + t.radius;
@@ -847,7 +855,7 @@ export class Game {
               this.fx.burst(pr.x, 1, pr.z, pr.color, 20, 7, 0.5);
               this.aoePlayer(pr.x, pr.z, pr.explode, pr.hitOpts);
               this.shake(0.12);
-              dead = true;
+              dead = true; pr.exploded = true;
             } else {
               playerHit(this, e, pr.hitOpts);
               this.fx.burst(pr.x, 1, pr.z, pr.color, 5, 3, 0.25);
@@ -873,7 +881,7 @@ export class Game {
         }
       }
       if (dead) {
-        if (pr.explode && pr.life <= 0) { this.fx.flash(pr.x, pr.z, pr.explode, pr.color, 0.35, 0.7); this.aoePlayer(pr.x, pr.z, pr.explode, pr.hitOpts); }
+        if (pr.explode && pr.owner === 'player' && !pr.exploded && (pr.life <= 0 || !this.dungeon.walkable(pr.x, pr.z))) { this.fx.flash(pr.x, pr.z, pr.explode, pr.color, 0.35, 0.7); this.aoePlayer(pr.x, pr.z, pr.explode, pr.hitOpts); }
         this.scene.remove(pr.mesh);
         this.projectiles.splice(i, 1);
         this.projPool.push(pr);

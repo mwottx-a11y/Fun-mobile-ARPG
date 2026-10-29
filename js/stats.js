@@ -79,7 +79,7 @@ export function computeStats(hero, buffs = [], runtime = {}) {
     for (const a of it.affixes) m[a.stat] = (m[a.stat] || 0) + (a.stat === 'projCount' || a.stat === 'pierce' ? a.value : a.value * mult);
     if (it.armor) armorBase += it.armor * (1 + 0.07 * (it.upg || 0));
     if (it.evasion) evasionBase += it.evasion * (1 + 0.07 * (it.upg || 0));
-    if (it.power) { powers.add(it.power); const p = powerById(it.power); if (p && p.mods) add(p.mods); }
+    if (it.power && !powers.has(it.power)) { powers.add(it.power); const p = powerById(it.power); if (p && p.mods) add(p.mods); }
     if (slot === 'weapon') weapon = it;
   }
   for (const b of buffs) if (b.mods) add(b.mods, b.scale || 1);

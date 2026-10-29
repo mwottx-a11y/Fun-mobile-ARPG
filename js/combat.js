@@ -28,7 +28,6 @@ export function playerHit(G, e, opts) {
   if (e.st.shock > 0) dmg *= 1.25;
   if (e.st.freeze > 0 && s.powers.has('frostbound')) dmg *= 1.4;
   if (e.mods && e.mods.has('shielded')) dmg *= 0.5;
-  if (e.boss && e.st.shieldT > 0) dmg *= 0.3;
   const crit = chance(s.critChance / 100);
   if (crit) dmg *= 1 + s.critDmg / 100;
   dmg = Math.max(1, dmg);
@@ -125,6 +124,7 @@ export function killEnemy(G, e) {
   sfx('kill');
   const s = G.stats, p = G.player;
   G.onEnemyKilled(e);
+  if (e.suicide) return;
   if (s.lifeOnKill > 0) healPlayer(G, s.lifeOnKill, true);
   if (s.manaOnKill > 0) p.mana = Math.min(s.maxMana, p.mana + s.manaOnKill);
   if (s.powers.has('soulharvest')) { p.souls = Math.min(30, (p.souls || 0) + 1); p.soulT = 8; }

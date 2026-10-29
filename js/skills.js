@@ -122,7 +122,13 @@ export function castSkill(G, idx, target) {
     }
     case 'dash': {
       let dist = sk.dist || 8;
-      if (target) dist = Math.min(dist, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)));
+      let dx = fx, dz = fz;
+      if (!sk.mult || sk.blink) {
+        // evasive dashes go where the stick points, or directly away from the threat
+        if (G.input.moveLen > 0.2) { const l = Math.hypot(G.input.mx, G.input.mz); dx = G.input.mx / l; dz = G.input.mz / l; }
+        else if (target) { dx = -fx; dz = -fz; }
+        p.facing = Math.atan2(dx, dz);
+      } else if (target && !sk.path) dist = Math.min(dist, Math.sqrt(dist2(target.pos.x, target.pos.z, p.pos.x, p.pos.z)));
       const sx = p.pos.x, sz = p.pos.z;
       const done = () => {
         if (sk.radius && sk.mult) {
@@ -135,11 +141,11 @@ export function castSkill(G, idx, target) {
       if (sk.blink) {
         if (sk.mult) { G.fx.ring(sx, sz, sk.radius * aoe, color, 0.4); G.aoePlayer(sx, sz, sk.radius * aoe, base); }
         G.fx.burst(sx, 1, sz, color, 16, 4, 0.4);
-        G.dashPlayer(fx, fz, dist, 0.01, null);
+        G.dashPlayer(dx, dz, dist, 0.01, null);
         G.fx.burst(p.pos.x, 1, p.pos.z, color, 16, 4, 0.4);
         if (sk.buff) done();
       } else {
-        G.dashPlayer(fx, fz, dist, sk.id === 'leap' ? 0.35 : 0.2, sk.path ? base : null, done, sk.id === 'leap');
+        G.dashPlayer(dx, dz, dist, sk.id === 'leap' ? 0.35 : 0.2, sk.path ? base : null, done, sk.id === 'leap');
       }
       break;
     }
@@ -177,6 +183,10 @@ export function castSkill(G, idx, target) {
         cur = best;
       }
       G.fx.bolt(pts, color, 0.22);
+      if (idx === 0 && s.powers.has('echo') && Math.random() < 0.35 && hit.size) {
+        const first = [...hit][0];
+        G.schedule(0.12, () => { if (!first.dead) { G.fx.bolt([[p.pos.x, 1.2, p.pos.z], [first.pos.x, 1, first.pos.z]], 0xffffff, 0.15); playerHit(G, first, { ...base, proc: true }); } });
+      }
       break;
     }
     case 'orbit': {

@@ -60,8 +60,10 @@ export function createEnemy(G, archId, x, z, { elite = 0, mods = [], boss = fals
 
 export function rollEliteMods(n) { return shuffle(ELITE_MODS.map((m) => m.id)).slice(0, n); }
 
+// Damage of an attack being created now (berserk enrage applies to all attack types).
+const atk = (e, mult = 1) => e.dmg * mult * (e.mods.has('berserk') && e.hp < e.maxHp * 0.5 ? 1.8 : 1);
+
 function hurtTarget(G, e, tgt, dmg, elem) {
-  if (e.mods.has('berserk') && e.hp < e.maxHp * 0.5) dmg *= 1.8;
   if (tgt === G.player) hurtPlayer(G, dmg, elem, e, e.level);
   else G.hurtMinion(tgt, dmg);
 }
@@ -138,7 +140,7 @@ export function updateEnemy(G, e, dt) {
   }
   if (e.state === 'recover') { e.t -= dt; if (e.t > 0) return; e.state = 'chase'; }
 
-  const los = d < 14 ? hasLOSCached(G, e, tgt) : false;
+  const los = d < 14 ? hasLOSCached(G, e, tgt, dt) : false;
   const inRange = d <= def.range + (tgt.radius || 0.4) && (def.ai === 'melee' || def.ai === 'brute' || def.ai === 'bomber' || los);
   if (inRange && e.atkT <= 0) {
     face(angTo(e.pos, tgt.pos));
@@ -163,9 +165,9 @@ export function updateEnemy(G, e, dt) {
   } else if (d < 15) face(angTo(e.pos, tgt.pos));
 }
 
-function hasLOSCached(G, e, tgt) {
-  e.losT -= 1 / 60;
-  if (e.losT <= 0 || e.losCache === undefined) { e.losT = 0.25; e.losCache = hasLOS(G.dungeon, e.pos.x, e.pos.z, tgt.pos.x, tgt.pos.z); }
+function hasLOSCached(G, e, tgt, dt) {
+  e.losCacheT = (e.losCacheT || 0) - dt;
+  if (e.losCacheT <= 0 || e.losCache === undefined) { e.losCacheT = 0.2; e.losCache = hasLOS(G.dungeon, e.pos.x, e.pos.z, tgt.pos.x, tgt.pos.z); }
   return e.losCache;
 }
 
@@ -175,10 +177,10 @@ function startAttack(G, e, tgt) {
   switch (def.ai) {
     case 'brute': {
       const cx = e.pos.x + fx * 1.4 * e.scale, cz = e.pos.z + fz * 1.4 * e.scale;
-      G.enemyAoe(cx, cz, def.radius * e.scale, e.dmg, e.elem, e.state === 'windup' ? e.t : 0.6, e);
+      G.enemyAoe(cx, cz, def.radius * e.scale, atk(e), e.elem, e.state === 'windup' ? e.t : 0.6, e);
       break;
     }
-    case 'caster': G.enemyAoe(tgt.pos.x, tgt.pos.z, def.radius, e.dmg, e.elem, e.t + 0.9, e); break;
+    case 'caster': G.enemyAoe(tgt.pos.x, tgt.pos.z, def.radius, atk(e), e.elem, e.t + 0.9, e); break;
     case 'bomber': G.fx.flash(e.pos.x, e.pos.z, def.radius, 0xff4020, e.t, 0.4); G.fx.telegraph(e.pos.x, e.pos.z, def.radius, e.t); break;
     case 'charger': G.fx.telegraph(e.pos.x + fx * 4, e.pos.z + fz * 4, 1.2, e.t, 0xff8040); break;
   }
@@ -189,18 +191,19 @@ function performAttack(G, e, tgt, d) {
   switch (def.ai) {
     case 'melee':
       G.fx.arc(e.pos.x, e.pos.z, e.facing, def.range + 0.3, 90, 0xff4040, 0.15);
-      if (dist2(e.pos.x, e.pos.z, tgt.pos.x, tgt.pos.z) <= (def.range + (tgt.radius || 0.4) + 0.6) ** 2) hurtTarget(G, e, tgt, e.dmg, e.elem);
+      if (dist2(e.pos.x, e.pos.z, tgt.pos.x, tgt.pos.z) <= (def.range + (tgt.radius || 0.4) + 0.6) ** 2) hurtTarget(G, e, tgt, atk(e), e.elem);
       break;
     case 'ranged': {
       const a = angTo(e.pos, tgt.pos);
-      G.spawnProjectile({ owner: 'enemy', x: e.pos.x, z: e.pos.z, ang: a, speed: def.projSpeed, range: def.range + 3, size: 0.22, color: ELEM_COLORS[e.elem], dmg: e.dmg, elem: e.elem, src: e });
+      G.spawnProjectile({ owner: 'enemy', x: e.pos.x, z: e.pos.z, ang: a, speed: def.projSpeed, range: def.range + 3, size: 0.22, color: ELEM_COLORS[e.elem], dmg: atk(e), elem: e.elem, src: e });
       break;
     }
     case 'bomber':
       G.fx.flash(e.pos.x, e.pos.z, def.radius, ELEM_COLORS[e.elem], 0.4, 0.9);
       G.fx.burst(e.pos.x, 0.6, e.pos.z, ELEM_COLORS[e.elem], 30, 8, 0.6);
-      G.enemyAoe(e.pos.x, e.pos.z, def.radius, e.dmg, e.elem, 0, e);
+      G.enemyAoe(e.pos.x, e.pos.z, def.radius, atk(e), e.elem, 0, e);
       G.shake(0.25);
+      e.suicide = true;
       killEnemy(G, e);
       break;
     case 'charger':
@@ -215,11 +218,11 @@ function eliteTick(G, e, tgt, d, dt) {
     e.modT = 0;
     const a = rand(0, Math.PI * 2);
     const nx = tgt.pos.x + Math.sin(a) * 2.5, nz = tgt.pos.z + Math.cos(a) * 2.5;
-    if (G.dungeon.walkable(nx, nz)) { G.fx.burst(e.pos.x, 1, e.pos.z, 0xc060ff, 14, 4, 0.4); e.pos.x = nx; e.pos.z = nz; G.fx.burst(nx, 1, nz, 0xc060ff, 14, 4, 0.4); }
+    if (G.fits(nx, nz, e.radius)) { G.fx.burst(e.pos.x, 1, e.pos.z, 0xc060ff, 14, 4, 0.4); e.pos.x = nx; e.pos.z = nz; G.fx.burst(nx, 1, nz, 0xc060ff, 14, 4, 0.4); }
   }
   if (e.mods.has('arcane') && e.modT > 4) {
     e.modT = 0;
-    for (let i = 0; i < 8; i++) G.spawnProjectile({ owner: 'enemy', x: e.pos.x, z: e.pos.z, ang: (i / 8) * Math.PI * 2 + rand(0, 0.5), speed: 7, range: 12, size: 0.3, color: 0xc060ff, dmg: e.dmg * 0.6, elem: 'shadow', src: e });
+    for (let i = 0; i < 8; i++) G.spawnProjectile({ owner: 'enemy', x: e.pos.x, z: e.pos.z, ang: (i / 8) * Math.PI * 2 + rand(0, 0.5), speed: 7, range: 12, size: 0.3, color: 0xc060ff, dmg: atk(e, 0.6), elem: 'shadow', src: e });
   }
   if (e.mods.has('summoner') && e.modT > 7 && e.summoned < 6) {
     e.modT = 0;
@@ -310,7 +313,7 @@ function bossTick(G, e, tgt, d, dt, slow) {
     return;
   }
   if (d > 2.5) {
-    const los = hasLOSCached(G, e, tgt);
+    const los = hasLOSCached(G, e, tgt, dt);
     let mx, mz;
     if (los || tgt !== G.player) { mx = (tgt.pos.x - e.pos.x) / d; mz = (tgt.pos.z - e.pos.z) / d; }
     else [mx, mz] = G.flowDir(e.pos.x, e.pos.z);
