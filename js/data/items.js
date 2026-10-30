@@ -6,12 +6,13 @@ export const SLOT_ICONS = { weapon: '⚔️', offhand: '🛡️', helm: '⛑️'
 // Drop weights per item slot type.
 export const SLOT_WEIGHTS = { weapon: 16, offhand: 8, helm: 9, chest: 9, gloves: 9, boots: 9, belt: 7, amulet: 6, ring: 10 };
 
+// Standard ARPG ladder: white, green, blue, purple, gold, then red for the tier beyond legendary.
 export const RARITIES = [
-  { id: 'common', name: 'Common', color: '#c9c9c9', hex: 0xc9c9c9, affixes: [0, 0], weight: 560, mfk: 0 },
-  { id: 'magic', name: 'Magic', color: '#5a8cff', hex: 0x5a8cff, affixes: [1, 2], weight: 300, mfk: 0.4 },
-  { id: 'rare', name: 'Rare', color: '#ffd84a', hex: 0xffd84a, affixes: [3, 4], weight: 90, mfk: 1 },
-  { id: 'epic', name: 'Epic', color: '#c45cff', hex: 0xc45cff, affixes: [5, 5], weight: 22, mfk: 1.2 },
-  { id: 'legendary', name: 'Legendary', color: '#ff8c1a', hex: 0xff8c1a, affixes: [4, 4], weight: 6, mfk: 1.4, power: true },
+  { id: 'common', name: 'Common', color: '#f4f4f4', hex: 0xf4f4f4, affixes: [0, 0], weight: 560, mfk: 0 },
+  { id: 'magic', name: 'Magic', color: '#4fd860', hex: 0x4fd860, affixes: [1, 2], weight: 300, mfk: 0.4 },
+  { id: 'rare', name: 'Rare', color: '#4a8cff', hex: 0x4a8cff, affixes: [3, 4], weight: 90, mfk: 1 },
+  { id: 'epic', name: 'Epic', color: '#b45cff', hex: 0xb45cff, affixes: [5, 5], weight: 22, mfk: 1.2 },
+  { id: 'legendary', name: 'Legendary', color: '#ffc531', hex: 0xffc531, affixes: [4, 4], weight: 6, mfk: 1.4, power: true },
   { id: 'mythic', name: 'Mythic', color: '#ff3b4e', hex: 0xff3b4e, affixes: [6, 6], weight: 0.7, mfk: 1.6, power: true, boost: 1.5, minFloor: 8 },
 ];
 export const rarityIndex = (id) => RARITIES.findIndex((r) => r.id === id);
