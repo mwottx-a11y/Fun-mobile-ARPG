@@ -265,3 +265,10 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
   #screen-title .tag { font-size: 13px; }
   .title-stage { position: absolute; left: max(30px, calc(22px + var(--sal))); bottom: calc(18px + var(--sab)); flex: none; }
 }
+
+/* grotesque title lettering: sprouting swash capitals in gilt */
+#screen-title h1 { font-family: 'Macondo Swash Caps', 'Cinzel', Georgia, serif; font-weight: 400; line-height: 0.9; letter-spacing: 1px;
+  background: linear-gradient(#fff4c8, #f0b040 50%, #a8560c); -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: 1.2px #5a2008; text-shadow: none; filter: drop-shadow(0 3px 0 #3a0c06) drop-shadow(0 0 16px #ff8c1a66); }
+#screen-title h1 { font-size: 50px; } #screen-title h1 span { font-size: 84px; color: transparent; }
+@media (min-aspect-ratio: 23/20) { #screen-title h1 { font-size: 38px; } #screen-title h1 span { font-size: 62px; } }
