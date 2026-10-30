@@ -236,7 +236,7 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 
 /* ---------- title: a living grottesca ---------- */
 #screen-title { background: transparent; padding: 0; overflow: hidden; touch-action: none; }
-#screen-title .title-wrap { position: relative; height: 100%; max-width: none; display: flex; flex-direction: column; justify-content: space-between; padding: calc(18px + var(--sat)) max(22px, calc(16px + var(--sar))) calc(16px + var(--sab)) max(22px, calc(16px + var(--sal))); pointer-events: none; }
+#screen-title .title-wrap { position: relative; height: 100%; max-width: none; display: flex; flex-direction: column; justify-content: space-between; padding: calc(18px + var(--sat)) calc(var(--fw) + 10px + var(--sar)) calc(16px + var(--sab)) calc(var(--fw) + 10px + var(--sal)); pointer-events: none; }
 #screen-title .title-head, #screen-title .title-panel { pointer-events: auto; }
 .title-head { text-align: center; }
 .title-head .fleurons { color: #d8a84a; font-size: 18px; letter-spacing: 10px; text-shadow: 0 0 10px #ff8c1a55; }
@@ -249,10 +249,12 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 .title-panel .hero-card { background: rgba(60, 22, 24, 0.7); border-color: #6a4020; }
 .title-panel #btn-new { margin: 4px auto 8px; }
 .colophon { font-family: 'IM Fell English SC', Georgia, serif; text-align: center; color: #c8a060; font-size: 13px; letter-spacing: 1px; margin: 4px 0 0; }
-.gilt-frame { position: absolute; inset: calc(8px + var(--sat)) calc(8px + var(--sar)) calc(8px + var(--sab)) calc(8px + var(--sal)); border: 2px solid #b8882e; outline: 1px solid #b8882e88; outline-offset: -7px; pointer-events: none; z-index: 1; }
-.gilt-frame span { position: absolute; color: #d8a84a; font-size: 22px; line-height: 1; background: #1c0b10; padding: 0 2px; }
-.gilt-frame span:nth-child(1) { top: -12px; left: -6px; } .gilt-frame span:nth-child(2) { top: -12px; right: -6px; transform: scaleX(-1); }
-.gilt-frame span:nth-child(3) { bottom: -12px; left: -6px; transform: scaleY(-1); } .gilt-frame span:nth-child(4) { bottom: -12px; right: -6px; transform: scale(-1, -1); }
+/* ornate gilt picture frame: opaque carved molding (painted in frame.js) with shell cartouches */
+#screen-title { --fw: clamp(20px, 6vmin, 34px); }
+.gilt-frame { position: absolute; inset: var(--sat) var(--sar) var(--sab) var(--sal); border: var(--fw) solid transparent; pointer-events: none; z-index: 1; filter: drop-shadow(0 0 6px rgba(0,0,0,0.7)); }
+.cartouche { position: absolute; left: 50%; width: clamp(120px, 36vmin, 200px); aspect-ratio: 520 / 200; background: center / contain no-repeat; transform: translateX(-50%); }
+.cartouche.top { top: calc(var(--fw) * -0.9); transform: translateX(-50%) scaleY(-1); }
+.cartouche.bottom { bottom: calc(var(--fw) * -0.9); }
 #title-pipes { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .title-pipe { position: absolute; transform: translate(-50%, -100%); font-family: 'IM Fell English', Georgia, serif; font-style: italic; font-size: 15px; color: #2a1408; background: #f4e6c4; border: 1px solid #a07830; border-radius: 12px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 3px 0 #0006; transition: opacity 0.5s, transform 0.5s; }
 .title-pipe::after { content: ''; position: absolute; left: 50%; bottom: -6px; border: 6px solid transparent; border-top-color: #f4e6c4; border-bottom: 0; transform: translateX(-50%); }
@@ -272,6 +274,7 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 #screen-title .title-wrap { justify-content: flex-start; padding-top: 0; padding-bottom: 0; }
 #screen-title .title-head { position: absolute; top: calc(14px + var(--sat)); left: 0; right: 0; }
 #screen-title .title-stage { flex: none; height: var(--logo-band, 56vh); padding-bottom: 4px; }
-#screen-title .title-panel { flex: 1; min-height: 0; max-height: none; overflow-y: auto; background: none; border: 0; outline: 0; border-radius: 0; padding: 4px 0 calc(16px + var(--sab)); backdrop-filter: none; }
+#screen-title .title-panel { flex: 1; min-height: 0; max-height: none; overflow-y: auto; background: none; border: 0; outline: 0; border-radius: 0; padding: 4px 0 calc(var(--fw) + 44px + var(--sab)); backdrop-filter: none; }
 #screen-title .title-panel .tag { margin-bottom: 12px !important; }
 @media (min-aspect-ratio: 23/20) { #screen-title .title-stage .hint { display: none; } }
+@media (max-height: 500px) { .cartouche.bottom { display: none; } #screen-title .title-panel { padding-bottom: calc(var(--fw) + 8px + var(--sab)); } }

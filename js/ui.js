@@ -11,6 +11,7 @@ import { fmt, pick, clamp, power } from './util.js';
 // Respecs are meant to be nearly free: about one gold pile at your level.
 export const respecCost = (lvl) => Math.round(power(lvl) * 10);
 import { INV_SIZE } from './game.js';
+import { frameImage, cartoucheImage } from './frame.js';
 import { setMuted, sfx } from './sfx.js';
 import { buyPrice, sellPrice, gamblePrice, potionPrice, refreshPrice, ensureShop, rollStock, gambleItem, GAMBLE_SLOTS } from './shop.js';
 
@@ -64,6 +65,10 @@ export class UI {
     this.mapCanvas = document.createElement('canvas');
     $('#menu-close').onclick = () => this.closeMenu();
     $('#btn-menu').onclick = () => this.openMenu(this.menuTab);
+    // paint the ornate gilt picture frame for the title screen
+    const fr = frameImage(), gf = $('.gilt-frame');
+    gf.style.borderImage = `url(${fr.url}) ${fr.slice} / var(--fw) round`;
+    for (const c of gf.querySelectorAll('.cartouche')) c.style.backgroundImage = `url(${cartoucheImage()})`;
     if (fsAvailable()) {
       for (const id of ['#btn-fs', '#btn-fs-title']) $(id).hidden = false;
       const sync = () => { $('#btn-fs').textContent = isFullscreen() ? '🗗' : '⛶'; $('#btn-fs-title').textContent = isFullscreen() ? '🗗 Exit fullscreen' : '⛶ Play fullscreen'; };

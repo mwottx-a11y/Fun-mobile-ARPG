@@ -212,10 +212,12 @@ export class TitleScene {
     const cam = this.camera, aspect = w / h, band = aspect > 1.15 ? 0.62 : 0.56;
     cam.aspect = aspect;
     // fit the ~9.8 x 7.6 logo inside the band, by width or height, whichever is tighter
-    const visH = Math.max(7.6 / band, 9.8 / aspect);
+    // fit inside the picture frame's opening (frame width mirrors --fw in the CSS)
+    const fw = Math.min(34, Math.max(20, 0.06 * Math.min(w, h)));
+    const visH = Math.max(7.6 / band, 9.8 / (aspect * (1 - (2 * fw + 8) / w)));
     // when width is the limit the logo is shorter than the band: shrink the band to hug it
     const used = Math.min(band, 7.6 / visH + 0.05);
-    const top = 0.05; // headroom for the fleurons above the logo
+    const top = 0.075; // headroom below the frame's top cartouche
     const dist = visH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)));
     const centreY = 0.45, lookY = centreY - (0.5 - top - used / 2) * visH;
     cam.position.set(0, lookY - 0.4, dist);
