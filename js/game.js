@@ -7,6 +7,7 @@ import { isShopFloor, ensureShop } from './shop.js';
 import { buildHero, buildMinion, tickBlink } from './characters.js';
 import { setHeroGear, buildDrop, buildGold, buildChest, buildPot, buildShrine, GEO, basic, lambert } from './models.js';
 import { FX } from './fx.js';
+import { TitleScene } from './title3d.js';
 import { Input } from './input.js';
 import { computeStats, xpToNext, ELEM_COLORS } from './stats.js';
 import { classById, UNLOCK_LEVELS } from './data/classes.js';
@@ -61,6 +62,7 @@ export class Game {
     this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }), 160);
     this.blobs.frustumCulled = false; this.blobs.renderOrder = 1;
     this.scene.add(this.blobs);
+    this.titleScene = new TitleScene(document.getElementById('title-pipes'));
     this.resize();
     addEventListener('resize', () => this.resize());
     this.renderer.setAnimationLoop(() => this.frame());
@@ -83,6 +85,7 @@ export class Game {
     this.camera.aspect = w / h;
     this.camera.fov = w < h ? 62 : 50;
     this.camera.updateProjectionMatrix();
+    if (this.titleScene) this.titleScene.resize(w, h);
   }
   setQuality(q) {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, q));
@@ -725,7 +728,9 @@ export class Game {
     let dt = raw;
     if (this.hitStopT > 0) { this.hitStopT -= raw; dt *= 0.12; }
     if (this.running && !this.paused) { this.update(dt); this.adaptResolution(raw); }
-    this.renderer.render(this.scene, this.camera);
+    // the title screen shows the living grottesca instead of the dungeon
+    if (!this.running && !document.getElementById('screen-title').hidden) { this.titleScene.update(raw); this.renderer.render(this.titleScene.scene, this.titleScene.camera); }
+    else this.renderer.render(this.scene, this.camera);
   }
 
   update(dt) {

@@ -10,7 +10,7 @@
 <title>Endless Delve</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
@@ -48,14 +48,22 @@
 </div>
 
 <div id="screen-title" class="screen" hidden>
+  <div class="gilt-frame"><span>❧</span><span>❧</span><span>❧</span><span>❧</span></div>
   <div class="title-wrap">
-    <h1>Endless<br><span>Delve</span></h1>
-    <p class="tag">An infinite dungeon. 16 races · 12 classes · endless loot.</p>
-    <div id="hero-list"></div>
-    <button id="btn-new" class="btn primary big">✚ New Hero</button>
-    <button id="btn-fs-title" class="btn" hidden>⛶ Play fullscreen</button>
-    <p class="muted small center">Best in landscape or portrait on mobile. Add to home screen for fullscreen.</p>
+    <header class="title-head">
+      <div class="fleurons">❦ ✠ ❦</div>
+      <h1>Endless<br><span>Delve</span></h1>
+      <p class="tag">A Most Delightfull Descent amongst Goblin-Spiders, Ill-Temper'd Snowmen &amp; Sundry Chimeras</p>
+    </header>
+    <div class="title-stage"><small class="hint">☞ Touch the beasts. They do not mind.</small></div>
+    <section class="title-panel">
+      <div id="hero-list"></div>
+      <button id="btn-new" class="btn primary big">✚ New Hero</button>
+      <button id="btn-fs-title" class="btn" hidden>⛶ Play fullscreen</button>
+      <p class="colophon">Sixteen races · Twelve callings · Loot without end</p>
+    </section>
   </div>
+  <div id="title-pipes"></div>
 </div>
 
 <div id="screen-create" class="screen" hidden>

@@ -46,7 +46,7 @@ export const KITS = {
 };
 
 function head(g, K, cx, cy, cz, r, mood = 'angry') {
-  const skin = lambert(K.skin);
+  const skin = lambert(K.headSkin || K.skin);
   const angry = mood === 'angry', worried = mood === 'worried';
   switch (K.head) {
     case 'skull':
@@ -260,6 +260,30 @@ function merged(key, build) {
   if (geos.eyes) { eyesMesh = new THREE.Mesh(geos.eyes, vcBasic); eyesMesh.position.y = geos.eyeY; body.add(eyesMesh); }
   root.userData = { body, eyes: eyesMesh, blinkT: Math.random() * 3 };
   return root;
+}
+
+// Chimeras for the title screen's grottesca: one monster's body wearing another's head.
+// body: biped | caster | brute | hound | spider | swarmer | bomber | charger
+export function buildChimera(body, bodyKit, headKit, mood = 'angry') {
+  const B = KITS[bodyKit], H = KITS[headKit];
+  const K = { ...B, head: H.head, headSkin: H.skin, accent: H.accent };
+  return merged(`chim_${body}_${bodyKit}_${headKit}`, (g) => {
+    switch (body) {
+      case 'caster': return caster(g, K);
+      case 'brute': return brute(g, K);
+      case 'hound': return hound(g, K);
+      case 'spider': return spider(g, K, mood === 'angry');
+      case 'swarmer': return swarmer(g, K);
+      case 'bomber': return bomber(g, K);
+      case 'charger': return charger(g, K);
+      default: return biped(g, K);
+    }
+  });
+}
+// A lone grotesque mask (mascaron), merged for the title screen.
+export function buildMask(headKit, r = 1) {
+  const K = KITS[headKit];
+  return merged(`mask_${headKit}_${r}`, (g) => head(g, K, 0, 0, 0, r, 'angry'));
 }
 
 export function buildMonster(arch, theme, boss = false) {

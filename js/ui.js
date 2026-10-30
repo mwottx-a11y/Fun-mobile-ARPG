@@ -114,6 +114,13 @@ export class UI {
           h('button', { class: 'btn small danger', onclick: (e) => confirmTap(e.currentTarget, 'Delete?', () => { deleteHero(hero.id); this.showTitle(); }) }, '✕'))));
     }
     $('#btn-new').onclick = () => this.showCreate();
+    if (!this.titleBound) {
+      // the grottesca follows your finger, and beasts you touch hop and speak
+      this.titleBound = true;
+      const ndc = (e) => [(e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1];
+      scr.addEventListener('pointermove', (e) => this.game.titleScene.setPointer(...ndc(e)));
+      scr.addEventListener('pointerdown', (e) => { if (e.target.closest('button, .hero-card, input')) return; const [x, y] = ndc(e); this.game.titleScene.setPointer(x, y); this.game.titleScene.tap(x, y); });
+    }
   }
 
   hideAll() { for (const s of document.querySelectorAll('.screen')) s.hidden = true; $('#hud').hidden = true; $('#menu').hidden = true; this.closeSheet(); }
