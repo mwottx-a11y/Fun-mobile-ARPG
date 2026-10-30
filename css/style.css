@@ -272,3 +272,7 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
   -webkit-text-stroke: 1.2px #5a2008; text-shadow: none; filter: drop-shadow(0 3px 0 #3a0c06) drop-shadow(0 0 16px #ff8c1a66); }
 #screen-title h1 { font-size: 50px; } #screen-title h1 span { font-size: 84px; color: transparent; }
 @media (min-aspect-ratio: 23/20) { #screen-title h1 { font-size: 38px; } #screen-title h1 span { font-size: 62px; } }
+
+.sr-only { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.title-panel .tag { margin: 0 auto 10px !important; text-align: center; }
+@media (min-aspect-ratio: 23/20) { #screen-title .title-head { position: absolute; top: calc(14px + var(--sat)); left: 0; right: 0; width: auto !important; } }
