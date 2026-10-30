@@ -257,14 +257,6 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 .title-pipe { position: absolute; transform: translate(-50%, -100%); font-family: 'IM Fell English', Georgia, serif; font-style: italic; font-size: 15px; color: #2a1408; background: #f4e6c4; border: 1px solid #a07830; border-radius: 12px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 3px 0 #0006; transition: opacity 0.5s, transform 0.5s; }
 .title-pipe::after { content: ''; position: absolute; left: 50%; bottom: -6px; border: 6px solid transparent; border-top-color: #f4e6c4; border-bottom: 0; transform: translateX(-50%); }
 .title-pipe.out { opacity: 0; transform: translate(-50%, -140%); }
-@media (min-aspect-ratio: 23/20) {
-  #screen-title .title-wrap { align-items: flex-end; justify-content: center; gap: 8px; }
-  #screen-title .title-head, #screen-title .title-panel { width: min(44%, 460px); }
-  #screen-title .title-panel { max-height: 58vh; margin: 0; }
-  #screen-title h1 { font-size: 30px; } #screen-title h1 span { font-size: 44px; }
-  #screen-title .tag { font-size: 13px; }
-  .title-stage { position: absolute; left: max(30px, calc(22px + var(--sal))); bottom: calc(18px + var(--sab)); flex: none; }
-}
 
 /* grotesque title lettering: sprouting swash capitals in gilt */
 #screen-title h1 { font-family: 'Macondo Swash Caps', 'Cinzel', Georgia, serif; font-weight: 400; line-height: 0.9; letter-spacing: 1px;
@@ -275,4 +267,11 @@ body.lefty #actions .ico, body.lefty #actions .cdt, body.lefty #actions .lock, b
 
 .sr-only { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .title-panel .tag { margin: 0 auto 10px !important; text-align: center; }
-@media (min-aspect-ratio: 23/20) { #screen-title .title-head { position: absolute; top: calc(14px + var(--sat)); left: 0; right: 0; width: auto !important; } }
+
+/* stacked title: logo band on top, tagline + heroes below (no boxed panel) */
+#screen-title .title-wrap { justify-content: flex-start; padding-top: 0; padding-bottom: 0; }
+#screen-title .title-head { position: absolute; top: calc(14px + var(--sat)); left: 0; right: 0; }
+#screen-title .title-stage { flex: none; height: var(--logo-band, 56vh); padding-bottom: 4px; }
+#screen-title .title-panel { flex: 1; min-height: 0; max-height: none; overflow-y: auto; background: none; border: 0; outline: 0; border-radius: 0; padding: 4px 0 calc(16px + var(--sab)); backdrop-filter: none; }
+#screen-title .title-panel .tag { margin-bottom: 12px !important; }
+@media (min-aspect-ratio: 23/20) { #screen-title .title-stage .hint { display: none; } }

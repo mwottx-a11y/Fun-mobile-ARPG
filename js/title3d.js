@@ -143,7 +143,7 @@ export class TitleScene {
 
     const root = this.root = new THREE.Group(); s.add(root);
     // a dim painted ground behind the ornament
-    const panel = new THREE.Mesh(new THREE.PlaneGeometry(30, 24), new THREE.MeshLambertMaterial({ color: 0x3a1218 }));
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: 0x3a1218 }));
     panel.position.set(0, 0, -1.2); root.add(panel);
 
     const c = candelabrum(); c.group.position.y = 0.6; root.add(c.group); this.flame = c.flame;
@@ -206,19 +206,24 @@ export class TitleScene {
     c.wings = [l, r]; c.wingKind = kind;
   }
 
+  // The logo owns a band across the top of the screen (LOGO_BAND of the height);
+  // the tagline and hero list live entirely below it.
   resize(w, h) {
-    const cam = this.camera, aspect = w / h, wide = aspect > 1.15;
+    const cam = this.camera, aspect = w / h, band = aspect > 1.15 ? 0.62 : 0.56;
     cam.aspect = aspect;
-    // the logo is ~9.4 wide x 7.2 tall. Portrait: it fills the width near the top, above the hero panel.
-    // Landscape: it fills the height on the left while the panel sits on the right.
-    const visH = wide ? 9.2 : Math.max(9.6 / aspect, 7.4 / 0.42);
+    // fit the ~9.8 x 7.6 logo inside the band, by width or height, whichever is tighter
+    const visH = Math.max(7.6 / band, 9.8 / aspect);
+    // when width is the limit the logo is shorter than the band: shrink the band to hug it
+    const used = Math.min(band, 7.6 / visH + 0.05);
+    const top = 0.05; // headroom for the fleurons above the logo
     const dist = visH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)));
-    const centreY = 0.45, lookY = wide ? centreY : centreY - (0.5 - 0.33) * visH;
+    const centreY = 0.45, lookY = centreY - (0.5 - top - used / 2) * visH;
     cam.position.set(0, lookY - 0.4, dist);
     cam.lookAt(0, lookY, 0);
-    if (wide) cam.setViewOffset(w, h, w * 0.22, 0, w, h); else cam.clearViewOffset();
+    cam.clearViewOffset();
     cam.updateProjectionMatrix();
     this.scene.fog.near = dist - 3; this.scene.fog.far = dist + 12;
+    document.documentElement.style.setProperty('--logo-band', (used + top) * 100 + 'vh');
   }
 
   setPointer(nx, ny) { this.pointer.set(nx, ny); }
